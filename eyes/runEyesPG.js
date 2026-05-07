@@ -97,29 +97,49 @@ function sendSignals(events) {
   for (const event of events) {
     if (event.type !== "HAND_COMPLETE" && event.type !== "STATE_CHANGE") continue;
     const ts = event.tableState;
+
+    // 1. REPORT OUTCOME OF PREVIOUS BET
+    // The table just transitioned to "Waiting for Bets", meaning the previous hand finished.
+    if (event.type === "HAND_COMPLETE" && ts.currentBetId) {
+      const outcomePayload = {
+        uuid: ts.currentBetId,
+        instanceID: "PG_Eyes",
+        tableNumber: event.tableName,
+        status: { setup: "READY", autoBet: true, gameState: "ROUND_COMPLETE" },
+        ocr: { roundNumber: String(event.round - 1), winner: event.winner || "UNKNOWN" },
+        metrics: { deckRemaining: event.deckRemaining || ts.remaining },
+        mathematics: {} // Not needed for outcome
+      };
+
+      console.log(`\n\x1b[36m[DEBUG OUTCOME PAYLOAD]\x1b[0m\n${JSON.stringify(outcomePayload, null, 2)}`);
+      
+      fetch("http://localhost:3456/api/telemetry/eyes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(outcomePayload)
+      }).catch(() => {});
+
+      // Clear the previous bet ID
+      ts.currentBetId = null;
+    }
+
+    // 2. PLACE NEW BET FOR CURRENT ROUND
+    // Only place a bet if there is a valid EV edge right now
     if (!ts.lastEvResult || !ts.lastEvResult.best) continue;
 
-    // Generate a new UUID if this is the start of a betting phase
-    if (event.type === "STATE_CHANGE") {
-      ts.currentBetId = crypto.randomUUID();
-    }
-    
-    // Skip sending outcome if we never sent a bet for this hand
-    if (!ts.currentBetId) continue;
+    // Generate a new UUID for this new betting phase
+    ts.currentBetId = crypto.randomUUID();
 
-    const payload = {
+    const betPayload = {
       uuid: ts.currentBetId,
       instanceID: "PG_Eyes",
       tableNumber: event.tableName,
       status: { 
         setup: "READY", 
         autoBet: true, 
-        gameState: event.type === "HAND_COMPLETE" ? "ROUND_COMPLETE" : "WAITING_FOR_BETS" 
+        gameState: "WAITING_FOR_BETS" 
       },
-      ocr: { 
-        roundNumber: String(event.round),
-        ...(event.type === "HAND_COMPLETE" ? { winner: event.winner } : {})
-      },
+      ocr: { roundNumber: String(event.round) },
       metrics: { deckRemaining: ts.remaining },
       mathematics: {
         deckComposition: ts.deckComposition,
@@ -131,12 +151,12 @@ function sendSignals(events) {
       }
     };
 
-    console.log(`\n\x1b[36m[DEBUG SIGNAL PAYLOAD]\x1b[0m\n${JSON.stringify(payload, null, 2)}`);
+    console.log(`\n\x1b[36m[DEBUG BET SIGNAL PAYLOAD]\x1b[0m\n${JSON.stringify(betPayload, null, 2)}`);
 
     fetch("http://localhost:3456/api/telemetry/eyes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(betPayload)
     })
     .then(res => res.json())
     .then(data => {
@@ -145,11 +165,6 @@ function sendSignals(events) {
     .catch(err => {
       console.log(`  \x1b[31m[SIGNAL] Failed to send to Central: ${err.message}\x1b[0m`);
     });
-    
-    // Clear the bet ID after sending the hand outcome
-    if (event.type === "HAND_COMPLETE") {
-      ts.currentBetId = null;
-    }
   }
 }
 
@@ -239,7 +254,7 @@ function writeStateJson(tables, timestamp, events) {
 
 // ─── Main Orchestrator ───────────────────────────────────────────────────
 
-async function runEyesPG(page, extractorCode) {
+async function runEyesPG(page, extractorCode, acctConfig) {
   let consecutiveErrors = 0;
   
   while (!page.isClosed()) {
@@ -247,7 +262,7 @@ async function runEyesPG(page, extractorCode) {
       const startTime = Date.now();
 
       // Step 1: Scrape
-      const data = await scrapePG(page, extractorCode);
+      const data = await scrapePG(page, extractorCode, acctConfig);
       if (!data) {
         await new Promise(r => setTimeout(r, 1000));
         continue;

@@ -9,8 +9,8 @@ const { ensureMultiplayActive } = require("../utils/ensureMultiplayActive");
  * @param {string} extractorCode - The dom_extractor.js source to evaluate
  * @returns {Promise<{text: string, tables: Array} | null>}
  */
-async function scrapePG(page, extractorCode) {
-  if (String(process.env.ENABLE_DOM_CLEANUP).toLowerCase() !== "false") {
+async function scrapePG(page, extractorCode, acctConfig = {}) {
+  if (acctConfig.enableDomCleanup) {
     await cleanUpDOM(page);
   }
   await ensureMultiplayActive(page);

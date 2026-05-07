@@ -1,5 +1,9 @@
 const http = require("http");
 const crypto = require("crypto");
+const path = require("path");
+const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
+const { cleanUpDOM } = require("../utils/cleanUpDOM");
+const { executeBetInBrowser } = require("./executeBet");
 
 const PORT = parseInt(process.env.PORT || "4001", 10);
 const CENTRAL_URL = process.env.CENTRAL_URL || "http://127.0.0.1:3456";
@@ -7,6 +11,14 @@ const MODULE_ID = "bet-module-" + PORT;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 
 const betQueue = [];
+let isBrowserReady = false;
+let browserPage = null;
+let domCleanupInterval = null;
+
+const initialAccountsPath = path.resolve(__dirname, "json", "bet_accounts.json");
+const initialAcctConfig = buildAccountConfig(0, initialAccountsPath);
+let currentModuleLabel = `Node (${initialAcctConfig.platform})`;
+let currentAccountLabel = initialAcctConfig.label || `Account_${PORT}`;
 
 function parseJSONBody(req) {
   return new Promise((resolve, reject) => {
@@ -28,8 +40,8 @@ function sendHeartbeat() {
   const payload = {
     moduleId: MODULE_ID,
     baseUrl: BASE_URL,
-    label: `Bet Module Node ${PORT}`,
-    accounts: [{ label: `Account_${PORT}`, isAcceptingBets: true }]
+    label: currentModuleLabel,
+    accounts: [{ label: currentAccountLabel, isAcceptingBets: isBrowserReady }]
   };
 
   fetch(`${CENTRAL_URL}/api/bet-module/heartbeat`, {
@@ -41,32 +53,51 @@ function sendHeartbeat() {
   });
 }
 
-async function processBets() {
+
+
+async function runBetPG() {
   while (true) {
     if (betQueue.length > 0) {
       const bet = betQueue.shift();
-      console.log(`\n[Bet Module ${PORT}] 📥 Received Bet: ${bet.id} for ${bet.tableName} (${bet.target})`);
+      console.log(`\n[${currentAccountLabel}] 📥 Received Bet: ${bet.uuid || bet.id} for ${bet.tableName} (${bet.target || bet.betType})`);
       
-      // Simulate bet execution time
-      await new Promise(r => setTimeout(r, 1500));
+      let success = false;
+      let reason = "Unknown error";
       
-      const success = Math.random() > 0.15; // 85% success rate
+      if (!isBrowserReady || !browserPage) {
+        reason = "Browser not ready for bet";
+        console.error(`[Bet Module] ${reason}.`);
+      } else {
+        const betConfig = {
+          tableName: bet.tableName,
+          betType: bet.target || bet.betType,
+          chipIndex: bet.chipIndex || 0, // default to 0 if not provided
+          clickDelayMs: 200,
+          chipSelector: ".chip",
+        };
+
+        const result = await executeBetInBrowser(browserPage, betConfig);
+        success = result.success;
+        reason = result.reason;
+      }
+      
       const status = success ? "SUCCESS" : "FAILED";
-      
-      console.log(`[Bet Module ${PORT}] ${success ? '✅' : '❌'} Result: ${status}`);
+      const reasonText = success ? "" : ` (Reason: ${reason || "None given"})`;
+      console.log(`[${currentAccountLabel}] ${success ? '✅' : '❌'} Result: ${status}${reasonText}`);
 
       // Report result to central server
       fetch(`${CENTRAL_URL}/api/telemetry/bet-result`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          betId: bet.id,
+          betId: bet.uuid || bet.id,
           status: status,
+          reason: reason,
           tableNumber: bet.tableName,
-          betType: bet.target
+          betType: bet.target || bet.betType
         })
       }).catch(err => {
-        console.error(`[Bet Module ${PORT}] Failed to report result to central:`, err.message);
+        console.error(`[${currentAccountLabel}] Failed to report result to central:`, err.message);
       });
     } else {
       await new Promise(r => setTimeout(r, 500));
@@ -78,10 +109,14 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && req.url === "/neuronbaccarat/bet") {
     try {
       const payload = await parseJSONBody(req);
-      betQueue.push(payload);
+      if (!isBrowserReady) {
+        res.writeHead(503, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ ok: false, error: "Browser not ready" }));
+      }
       
+      betQueue.push(payload);
       res.writeHead(202, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true, status: "queued", betId: payload.id }));
+      res.end(JSON.stringify({ ok: true, status: "queued", betId: payload.id || payload.uuid }));
     } catch (e) {
       res.writeHead(400, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: false, error: e.message }));
@@ -93,9 +128,65 @@ const server = http.createServer(async (req, res) => {
   res.end("Not found");
 });
 
+async function initBrowser() {
+  const accountsPath = path.resolve(__dirname, "json", "bet_accounts.json");
+  
+  while (true) {
+    let browserContext = null;
+    try {
+      // 0 maps to the Winbox config we created earlier
+      const acctConfig = buildAccountConfig(0, accountsPath); 
+      currentModuleLabel = `Node (${acctConfig.platform})`;
+      currentAccountLabel = acctConfig.label || `Account_${PORT}`;
+      console.log(`\n[Bet Module] Starting browser launch sequence for ${currentAccountLabel}...`);
+      
+      const { browser, page } = await launchAccount(acctConfig);
+      browserContext = browser;
+      browserPage = page;
+      isBrowserReady = true;
+
+      console.log(`\x1b[32m[Bet Module] Winbox Launch Successful! Module is ready to accept bets.\x1b[0m`);
+      
+      if (acctConfig.enableDomCleanup) {
+        console.log(`[Bet Module] DOM Cleanup is enabled. Starting periodic cleanup...`);
+        domCleanupInterval = setInterval(() => {
+          if (isBrowserReady && browserPage) {
+            cleanUpDOM(browserPage).catch(() => {});
+          }
+        }, 5000);
+      }
+      
+      // Wait until browser closes
+      while (!page.isClosed()) {
+         await new Promise(r => setTimeout(r, 2000));
+      }
+      
+      if (domCleanupInterval) {
+        clearInterval(domCleanupInterval);
+        domCleanupInterval = null;
+      }
+      
+      console.log(`\x1b[31m[Bet Module] Browser closed or crashed. Relaunching...\x1b[0m`);
+      isBrowserReady = false;
+      browserPage = null;
+    } catch (err) {
+      console.error("\x1b[31m[Bet Module] Launch error:\x1b[0m", err.message);
+      isBrowserReady = false;
+      browserPage = null;
+      if (domCleanupInterval) {
+        clearInterval(domCleanupInterval);
+        domCleanupInterval = null;
+      }
+      if (browserContext) await browserContext.disconnect().catch(() => {});
+      await new Promise(r => setTimeout(r, 5000));
+    }
+  }
+}
+
 server.listen(PORT, () => {
   console.log(`[Bet Module] 🟢 Online on ${BASE_URL} | Targeting Central: ${CENTRAL_URL}`);
   setInterval(sendHeartbeat, 10000);
   sendHeartbeat(); // initial heartbeat
-  processBets(); // start processing loop
+  runBetPG(); // start processing loop
+  initBrowser(); // start browser lifecycle loop
 });

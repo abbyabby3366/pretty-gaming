@@ -1,151 +1,151 @@
 
 
---- [2026-05-07T07-41-32] ---
+--- [2026-05-07T09-01-11] ---
 === LIVE BACCARAT TABLES COMPACT VIEW ===
 
-[Table 1] Prettywm35 | State: Waiting for Bets | Timer: 13s | Round: 45 | Wins: P:17 B:27 T:1
+[Table 1] Prettywm35 | State: Waiting for Bets | Timer: 11s | Round: 26 | Wins: P:12 B:10 T:4
    Bets:  Player Pair, Player, Tie, Banker, Banker Pair
    Cards: None
 
-[Table 2] Prettywm36 | State: Waiting for Bets | Timer: 9s | Round: 33 | Wins: P:16 B:14 T:3
-   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
-   Cards: None
-
-[Table 3] Prettywm112 | State: Dealing | Timer: 0s | Round: 0 | Wins: P:0 B:0 T:0
+[Table 2] Prettywm36 | State: Dealing | Timer: 0s | Round: 14 | Wins: P:6 B:6 T:2
    Bets:  Player Pair, Player, Tie, Banker, Banker Pair
    Cards: Player [Red, Red] | Banker [Red, Red]
 
-[Table 4] Prettywm113 | State: Waiting for Bets | Timer: 20s | Round: 19 | Wins: P:11 B:7 T:1
-   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
-   Cards: None
-
-[Table 5] Prettywm115 | State: Waiting for Bets | Timer: 17s | Round: 8 | Wins: P:2 B:5 T:1
-   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
-   Cards: None
-
-[Table 6] Prettywm116 | State: Waiting for Bets | Timer: 6s | Round: 1 | Wins: P:0 B:1 T:0
-   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
-   Cards: None
-
-[Table 7] Prettywm1 | State: Result (Banker Win) | Timer: 0s | Round: 24 | Wins: P:11 B:9 T:4
-   Bets:  Table is Result (Bets Closed)
-   Cards: Player [KS, 10C, JC] | Banker [10S, 6H]
-
-[Table 8] Prettywm2 | State: Waiting for Bets | Timer: 11s | Round: 0 | Wins: P:0 B:0 T:0
-   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
-   Cards: None
-
-[Table 9] Prettywm3 | State: Result (Player Win) | Timer: 0s | Round: 30 | Wins: P:14 B:13 T:3
-   Bets:  Table is Result (Bets Closed)
-   Cards: Player [3D, KS, QC] | Banker [KS, 2C, KS]
-
-[Table 10] Prettywm5 | State: Dealing | Timer: 0s | Round: 3 | Wins: P:2 B:1 T:0
+[Table 3] Prettywm112 | State: Dealing | Timer: 0s | Round: 24 | Wins: P:6 B:15 T:3
    Bets:  Player Pair, Player, Tie, Banker, Banker Pair
    Cards: Player [Red, Red] | Banker [Red, Red]
 
-[Table 11] Prettywm6 | State: Waiting for Bets | Timer: 10s | Round: 0 | Wins: P:0 B:0 T:0
-   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
-   Cards: None
-
-[Table 12] Prettywm7 | State: Result (Banker Win) | Timer: 0s | Round: 29 | Wins: P:13 B:14 T:2
-   Bets:  Table is Result (Bets Closed)
-   Cards: Player [9H, AC, AS] | Banker [10D, 5S]
-
-[Table 13] Prettywm8 | State: Dealing | Timer: 0s | Round: 0 | Wins: P:0 B:0 T:0
+[Table 4] Prettywm113 | State: Dealing | Timer: 0s | Round: 45 | Wins: P:24 B:19 T:2
    Bets:  Player Pair, Player, Tie, Banker, Banker Pair
    Cards: Player [Red, Red] | Banker [Red, Red]
 
-[Table 14] Prettywm31 | State: Dealing | Timer: 0s | Round: 33 | Wins: P:14 B:16 T:3
+[Table 5] Prettywm115 | State: Waiting for Bets | Timer: 8s | Round: 32 | Wins: P:16 B:14 T:2
+   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
+   Cards: None
+
+[Table 6] Prettywm116 | State: Dealing | Timer: 0s | Round: 26 | Wins: P:12 B:12 T:2
    Bets:  Player Pair, Player, Tie, Banker, Banker Pair
    Cards: Player [Red, Red] | Banker [Red, Red]
 
-[Table 15] Prettywm32 | State: Waiting for Bets | Timer: 24s | Round: 34 | Wins: P:17 B:12 T:5
+[Table 7] Prettywm1 | State: Result (Player Win) | Timer: 0s | Round: 13 | Wins: P:5 B:7 T:1
+   Bets:  Table is Result (Bets Closed)
+   Cards: Player [6D, 10S] | Banker [2C, 9H, JD]
+
+[Table 8] Prettywm2 | State: Waiting for Bets | Timer: 5s | Round: 44 | Wins: P:20 B:16 T:8
    Bets:  Player Pair, Player, Tie, Banker, Banker Pair
    Cards: None
 
-[Table 16] Prettywm33 | State: Dealing | Timer: 0s | Round: 19 | Wins: P:7 B:8 T:4
+[Table 9] Prettywm3 | State: Dealing | Timer: 0s | Round: 18 | Wins: P:9 B:7 T:2
    Bets:  Player Pair, Player, Tie, Banker, Banker Pair
    Cards: Player [Red, Red] | Banker [Red, Red]
 
-[Table 17] Prettywm37 | State: Dealing | Timer: 0s | Round: 38 | Wins: P:15 B:16 T:7
+[Table 10] Prettywm5 | State: Waiting for Bets | Timer: 10s | Round: 45 | Wins: P:25 B:16 T:4
    Bets:  Player Pair, Player, Tie, Banker, Banker Pair
-   Cards: Player [2H, KS] | Banker [7H, 8H]
+   Cards: None
 
-[Table 18] Prettyonsexy01 | State: Result (Banker Win) | Timer: 0s | Round: 31 | Wins: P:13 B:16 T:2
+[Table 11] Prettywm6 | State: Waiting for Bets | Timer: 10s | Round: 37 | Wins: P:20 B:17 T:0
+   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
+   Cards: None
+
+[Table 12] Prettywm7 | State: Dealing | Timer: 0s | Round: 19 | Wins: P:7 B:10 T:2
+   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
+   Cards: Player [Red, Red] | Banker [Red, Red]
+
+[Table 13] Prettywm8 | State: Waiting for Bets | Timer: 2s | Round: 44 | Wins: P:19 B:21 T:4
+   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
+   Cards: None
+
+[Table 14] Prettywm31 | State: Waiting for Bets | Timer: 24s | Round: 15 | Wins: P:7 B:7 T:1
+   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
+   Cards: None
+
+[Table 15] Prettywm32 | State: Result (Tie) | Timer: 0s | Round: 20 | Wins: P:5 B:13 T:2
    Bets:  Table is Result (Bets Closed)
-   Cards: Player [8H, QD] | Banker [8C, AS]
+   Cards: Player [7S, 10D] | Banker [2H, 5S]
 
-[Table 19] Prettyonsexy02 | State: Shuffling | Round: - | Wins: P:0 B:0 T:0
-   Bets:  Table is Shuffling (Bets Closed)
-   Cards: None
-
-[Table 20] Prettyonsexy03 | State: Dealing | Timer: 0s | Round: 35 | Wins: P:18 B:15 T:2
-   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
-   Cards: Player [10D, QC] | Banker [10D, 4S]
-
-[Table 21] Prettyonsexy04 | State: Waiting for Bets | Timer: 14s | Round: 0 | Wins: P:0 B:0 T:0
+[Table 16] Prettywm33 | State: Waiting for Bets | Timer: 14s | Round: 48 | Wins: P:16 B:23 T:9
    Bets:  Player Pair, Player, Tie, Banker, Banker Pair
    Cards: None
 
-[Table 22] Prettyonsexy05 | State: Dealing | Timer: 0s | Round: 35 | Wins: P:18 B:10 T:7
+[Table 17] Prettywm37 | State: Waiting for Bets | Timer: 1s | Round: 7 | Wins: P:3 B:3 T:1
    Bets:  Player Pair, Player, Tie, Banker, Banker Pair
    Cards: None
 
-[Table 23] Prettyico116 | State: Shuffling | Round: - | Wins: P:0 B:0 T:0
-   Bets:  Table is Shuffling (Bets Closed)
-   Cards: None
-
-[Table 24] PrettyMG07 | State: Waiting for Bets | Timer: 7s | Round: 40 | Wins: P:15 B:21 T:4
+[Table 18] Prettyonsexy01 | State: Waiting for Bets | Timer: 4s | Round: 7 | Wins: P:3 B:3 T:1
    Bets:  Player Pair, Player, Tie, Banker, Banker Pair
    Cards: None
 
-[Table 25] PrettyMG06 | State: Waiting for Bets | Timer: 6s | Round: 27 | Wins: P:8 B:16 T:3
-   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
-   Cards: None
-
-[Table 26] PrettyMG05 | State: Waiting for Bets | Timer: 10s | Round: 46 | Wins: P:20 B:21 T:5
-   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
-   Cards: None
-
-[Table 27] PrettyMG04 | State: Dealing | Timer: 0s | Round: 3 | Wins: P:0 B:2 T:1
-   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
-   Cards: Player [10S, QD] | Banker [10D, 8H]
-
-[Table 28] PrettyMG03 | State: Dealing | Timer: 0s | Round: 42 | Wins: P:22 B:16 T:4
-   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
-   Cards: Player [JS, 6S, 7D] | Banker [6D, JH]
-
-[Table 29] PrettyMG02 | State: Dealing | Timer: 0s | Round: 29 | Wins: P:13 B:14 T:2
-   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
-   Cards: Player [10S, 4D, AD] | Banker [KS, KS, 2S]
-
-[Table 30] PrettyMG01 | State: Dealing | Timer: 0s | Round: 7 | Wins: P:2 B:3 T:2
-   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
-   Cards: None
-
-[Table 31] PrettyMG08 | State: Dealing | Timer: 0s | Round: 15 | Wins: P:6 B:6 T:3
-   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
-   Cards: Player [2C, KS] | Banker [Red, Red]
-
-[Table 32] PrettyMG09 | State: Dealing | Timer: 0s | Round: 14 | Wins: P:6 B:7 T:1
-   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
-   Cards: None
-
-[Table 33] PrettyMG10 | State: Result (Player Win) | Timer: 0s | Round: 35 | Wins: P:17 B:13 T:5
+[Table 19] Prettyonsexy02 | State: Result (Banker Win) | Timer: 0s | Round: 20 | Wins: P:6 B:12 T:2
    Bets:  Table is Result (Bets Closed)
-   Cards: Player [AS, 7S] | Banker [5C, 6S]
+   Cards: Player [10S, 7S, 7H] | Banker [7H, KH]
 
-[Table 34] PrettyMG11 | State: Dealing | Timer: 0s | Round: 22 | Wins: P:9 B:10 T:3
+[Table 20] Prettyonsexy03 | State: Dealing | Timer: 0s | Round: 18 | Wins: P:7 B:11 T:0
    Bets:  Player Pair, Player, Tie, Banker, Banker Pair
-   Cards: Player [5C, 7D] | Banker [2C, QS]
+   Cards: Player [8H, 5C] | Banker [JS, 7D]
 
-[Table 35] PrettyMG12 | State: Waiting for Bets | Timer: 10s | Round: 32 | Wins: P:13 B:15 T:4
+[Table 21] Prettyonsexy04 | State: Result (Player Win) | Timer: 0s | Round: 29 | Wins: P:14 B:13 T:2
+   Bets:  Table is Result (Bets Closed)
+   Cards: Player [8D, JS] | Banker [QD, KC]
+
+[Table 22] Prettyonsexy05 | State: Dealing | Timer: 0s | Round: 19 | Wins: P:12 B:6 T:1
+   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
+   Cards: Player [Red, Red] | Banker [Red, Red]
+
+[Table 23] Prettyico116 | State: Dealing | Timer: 0s | Round: 23 | Wins: P:10 B:11 T:2
    Bets:  Player Pair, Player, Tie, Banker, Banker Pair
    Cards: None
 
-[Table 36] PrettyXPG93 | State: Result (Player Win) | Timer: 0s | Round: 33 | Wins: P:19 B:8 T:6
-   Bets:  Table is Result (Bets Closed)
-   Cards: Player [7S, 3C, 8H] | Banker [QD, 5D, 10D]
+[Table 24] PrettyMG07 | State: Dealing | Timer: 0s | Round: 15 | Wins: P:9 B:5 T:1
+   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
+   Cards: Player [2S, 5H, 6D] | Banker [8S, 5D]
+
+[Table 25] PrettyMG06 | State: Waiting for Bets | Timer: 9s | Round: 68 | Wins: P:23 B:33 T:12
+   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
+   Cards: None
+
+[Table 26] PrettyMG05 | State: Dealing | Timer: 0s | Round: 18 | Wins: P:10 B:7 T:1
+   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
+   Cards: Player [6S, 6C] | Banker [Red, QD]
+
+[Table 27] PrettyMG04 | State: Waiting for Bets | Timer: 4s | Round: 41 | Wins: P:12 B:26 T:3
+   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
+   Cards: None
+
+[Table 28] PrettyMG03 | State: Waiting for Bets | Timer: 16s | Round: 16 | Wins: P:6 B:8 T:2
+   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
+   Cards: None
+
+[Table 29] PrettyMG02 | State: Dealing | Timer: 0s | Round: 7 | Wins: P:4 B:3 T:0
+   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
+   Cards: Player [KD, 10S] | Banker [Red, Red]
+
+[Table 30] PrettyMG01 | State: Waiting for Bets | Timer: 8s | Round: 46 | Wins: P:21 B:21 T:4
+   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
+   Cards: None
+
+[Table 31] PrettyMG08 | State: Dealing | Timer: 0s | Round: 1 | Wins: P:1 B:0 T:0
+   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
+   Cards: Player [7C, KH] | Banker [Red, Red]
+
+[Table 32] PrettyMG09 | State: Dealing | Timer: 0s | Round: 52 | Wins: P:23 B:27 T:2
+   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
+   Cards: Player [Red, Red] | Banker [Red, Red]
+
+[Table 33] PrettyMG10 | State: Dealing | Timer: 0s | Round: 10 | Wins: P:6 B:2 T:2
+   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
+   Cards: Player [8D, 10H] | Banker [Red, QH]
+
+[Table 34] PrettyMG11 | State: Dealing | Timer: 0s | Round: 60 | Wins: P:26 B:24 T:10
+   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
+   Cards: None
+
+[Table 35] PrettyMG12 | State: Waiting for Bets | Timer: 8s | Round: 0 | Wins: P:0 B:0 T:0
+   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
+   Cards: None
+
+[Table 36] PrettyXPG93 | State: Dealing | Timer: 0s | Round: 12 | Wins: P:3 B:8 T:1
+   Bets:  Player Pair, Player, Tie, Banker, Banker Pair
+   Cards: Player [7H, Red] | Banker [8H, Red]
 
 
 [Parser Complete] Extracted exactly 36 Active Baccarat Tables

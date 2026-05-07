@@ -23,7 +23,7 @@ const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
 
       console.log("Page loaded. Starting the extractor loop...");
 
-      await runEyesPG(page, extractorCode);
+      await runEyesPG(page, extractorCode, acctConfig);
       
       console.log("\x1b[31m[RECOVERY] Extractor loop exited. Disconnecting and relaunching...\x1b[0m");
       if (browserContext) await browserContext.disconnect().catch(() => {});

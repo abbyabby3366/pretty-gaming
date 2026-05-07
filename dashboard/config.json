@@ -1,0 +1,8 @@
+{
+  "startingBankroll": 1000,
+  "kellyFraction": 0.5,
+  "rounding": 10,
+  "maxBet": 500,
+  "method": "flat",
+  "flatRatio": 0.01
+}

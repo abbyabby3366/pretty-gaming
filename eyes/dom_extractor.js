@@ -290,11 +290,11 @@
     }
   });
 
-  console.log(outputTxt, ...styles);
-  console.log(
-    `%c[Parser Complete] Extracted exactly ${tablesProcessed} Active Baccarat Tables`,
-    "color: #ff9800; font-style: italic;",
-  );
+  // console.log(outputTxt, ...styles);
+  // console.log(
+  //   `%c[Parser Complete] Extracted exactly ${tablesProcessed} Active Baccarat Tables`,
+  //   "color: #ff9800; font-style: italic;",
+  // );
 
   // Return structured JSON for Node backend
   const cleanOutput = outputTxt.replace(/%c/g, "") + `\n[Parser Complete] Extracted exactly ${tablesProcessed} Active Baccarat Tables\n`;

@@ -43,29 +43,56 @@
     .reason-row {display:none;background:#0d1117;}
     .reason-row.active {display:table-row;}
     .reason-content {padding:10px;font-size:10px;color:var(--dim);white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto;border:1px solid rgba(255,255,255,0.05);border-radius:4px;background:#0a0c10;}
+
+    .modules-panel { padding: 12px; background: #0d1117; border-bottom: 1px solid var(--border); display: flex; gap: 12px; flex-wrap: wrap; }
+    .module-card { background: var(--card); border: 1px solid var(--border); padding: 8px 12px; border-radius: 6px; min-width: 200px; }
+    .module-card .m-title { font-size: 12px; font-weight: 600; color: var(--cyan); margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; }
+    .module-card .m-url { color: var(--dim); font-size: 10px; margin-bottom: 8px; }
+    .acct-row { display: flex; justify-content: space-between; font-size: 10px; margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.05); }
+    .status-dot { height: 8px; width: 8px; border-radius: 50%; display: inline-block; }
+    .status-online { background: var(--green); box-shadow: 0 0 5px var(--green); }
+    .status-offline { background: var(--red); }
+
+    .modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); display:none; justify-content:center; align-items:center; z-index:99; }
+    .modal { background:var(--card); border:1px solid var(--border); padding:20px; border-radius:8px; width:400px; }
+    .modal h2 { margin-bottom:15px; color:var(--cyan); font-size:16px; }
+    .form-group { margin-bottom:12px; }
+    .form-group label { display:block; font-size:11px; color:var(--dim); margin-bottom:4px; }
+    .form-group input { width:100%; background:#0d1117; border:1px solid var(--border); color:var(--text); padding:6px; font-family:inherit; border-radius:4px; }
+    .modal-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:20px; }
+    .btn { padding:6px 12px; border:none; border-radius:4px; cursor:pointer; font-family:inherit; font-weight:600; }
+    .btn-primary { background:var(--cyan); color:#000; }
+    .btn-secondary { background:#0d1117; color:var(--text); border:1px solid var(--border); }
   </style>
 </head>
 <body>
   <div class="bar">
-    <span class="title">PG Eyes - Bet Dispatch Log</span>
+    <span class="title">PG Bet Module</span>
     <div class="meta">
       <span id="ts">Loading...</span>
       <span id="count" style="color:white;font-weight:600;">0 bets</span>
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;margin-left:10px;">
+        <input type="checkbox" id="cfg-autobet-outside" onchange="toggleAutoBet()" />
+        <span style="font-weight:600;color:var(--yellow);">Auto Bet</span>
+      </label>
+      <button onclick="openSettings()" style="background:var(--cyan);color:#000;border:none;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit;font-weight:600;margin-left:5px;">Bet Settings</button>
+      <button onclick="clearLogs()" style="background:var(--red);color:white;border:none;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit;font-weight:600;">Clear Logs</button>
       <a href="/">← Back to Tables</a>
     </div>
+  </div>
+  <div class="modules-panel" id="modules-panel">
+    <div style="color:var(--dim);">Loading modules...</div>
   </div>
   <div class="main">
     <table>
       <thead>
         <tr>
-          <th>Time</th>
-          <th>Table</th>
-          <th>Round</th>
-          <th>Target</th>
-          <th>EV</th>
-          <th>Module</th>
-          <th>Outcome</th>
-          <th>Details</th>
+          <th style="width:120px">Time</th>
+          <th>Table (Round)</th>
+          <th>1. Signal (From Eyes)</th>
+          <th>2. Betting Execution</th>
+          <th>3. Round Outcome</th>
+          <th style="width:80px;text-align:right;">Details</th>
         </tr>
       </thead>
       <tbody id="tb">
@@ -93,6 +120,18 @@
       }
     }
 
+    async function clearLogs() {
+      if (!confirm("Are you sure you want to delete all bet logs? This will also clear the MongoDB database.")) return;
+      try {
+        await fetch('/clear-bet-logs', { method: 'POST' });
+        lastDataStr = ''; // force re-render
+        document.getElementById('tb').innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--dim);padding:20px;">Clearing logs...</td></tr>';
+        poll();
+      } catch(e) {
+        alert("Failed to clear logs: " + e.message);
+      }
+    }
+
     function renderBet(b) {
       const d = new Date(b.time);
       const timeStr = d.toLocaleTimeString('en-GB', { timeZone: 'Asia/Singapore', hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3,'0');
@@ -103,23 +142,107 @@
       
       return `
         <tr>
-          <td>${timeStr}</td>
-          <td style="color:var(--cyan);font-weight:500;">${b.tableName}</td>
-          <td>${b.round}</td>
-          <td class="${targetCls}"><span style="background:rgba(255,255,255,0.05);padding:2px 4px;border-radius:2px;font-weight:600;">${b.target}</span></td>
-          <td style="color:${b.ev>=0?'var(--green)':'var(--red)'};font-weight:600;">${fmtEv(b.ev)}</td>
-          <td style="color:var(--dim)">${b.targetModule}</td>
-          <td class="${statusCls}" style="font-weight:600">${b.outcome}</td>
-          <td><button class="btn-reason" onclick="toggleReason('${b.id}')">View JSON</button></td>
+          <td style="color:var(--dim);">${timeStr}</td>
+          <td>
+            <div style="color:var(--cyan);font-weight:600;font-size:12px;">${b.tableName}</div>
+            <div style="color:var(--dim);font-size:10px;">Round ${b.round}</div>
+            <div style="color:var(--dim);font-size:9px;margin-top:2px;" title="${b.id}">UUID: ...${b.id.substr(-6)}</div>
+          </td>
+          <td>
+            <div class="${targetCls}"><span style="background:rgba(255,255,255,0.05);padding:2px 4px;border-radius:2px;font-weight:600;">${b.target}</span></div>
+            <div style="color:${b.ev>=0?'var(--green)':'var(--red)'};font-weight:600;margin-top:4px;">EV: ${fmtEv(b.ev)}</div>
+          </td>
+          <td>
+            <div style="color:var(--text);margin-bottom:4px;">Node: <span style="color:var(--cyan)">${b.targetModule}</span></div>
+            <div style="color:var(--dim);display:flex;gap:12px;margin-bottom:4px;">
+              <span>Rec: <strong>${b.recommendedBetAmount}</strong></span>
+              <span>Act: <strong>${b.actualBetAmount}</strong></span>
+            </div>
+            <div class="${statusCls}" style="font-weight:600;">Status: ${b.outcome}</div>
+          </td>
+          <td>
+            <div style="font-weight:600;font-size:14px;color:${b.roundOutcome==='UNKNOWN'?'var(--dim)':(b.roundOutcome==='WAITING'?'var(--yellow)':'var(--purple)')}">${b.roundOutcome}</div>
+          </td>
+          <td style="text-align:right;">
+            <button class="btn-reason" onclick="toggleReason('${b.id}')">View JSON</button>
+          </td>
         </tr>
         <tr id="reason-${b.id}" class="reason-row ${isActive}">
-          <td colspan="8" style="padding:0;">
-            <div style="padding:10px;">
-              <div class="reason-content">${JSON.stringify(b.reasonState, null, 2)}</div>
+          <td colspan="6" style="padding:0;">
+            <div style="padding:10px; display:flex; gap:10px;">
+              <div style="flex:1;">
+                 <div style="color:var(--cyan);font-weight:600;margin-bottom:4px;font-size:11px;">1. Signal (From Eyes)</div>
+                 <div class="reason-content">${JSON.stringify(b.reasonState, null, 2)}</div>
+              </div>
+              <div style="flex:1;">
+                 <div style="color:var(--yellow);font-weight:600;margin-bottom:4px;font-size:11px;">2. Execution Callback</div>
+                 <div class="reason-content">${b.executionState ? JSON.stringify(b.executionState, null, 2) : '<span style="color:var(--dim)">Awaiting Execution Callback...</span>'}</div>
+              </div>
+              <div style="flex:1;">
+                 <div style="color:var(--purple);font-weight:600;margin-bottom:4px;font-size:11px;">3. Round Outcome</div>
+                 <div class="reason-content">${b.outcomeState ? JSON.stringify(b.outcomeState, null, 2) : '<span style="color:var(--dim)">Awaiting Round Outcome...</span>'}</div>
+              </div>
             </div>
           </td>
         </tr>
       `;
+    }
+
+    async function openSettings() {
+      try {
+        const res = await fetch('/api/config');
+        const data = await res.json();
+        if (data.ok) {
+           document.getElementById('cfg-autobet-outside').checked = data.config.autoBetEnabled ?? true;
+           document.getElementById('cfg-method').value = data.config.method || 'kelly';
+           document.getElementById('cfg-bankroll').value = data.config.startingBankroll;
+           document.getElementById('cfg-kelly').value = data.config.kellyFraction;
+           document.getElementById('cfg-flat').value = data.config.flatRatio || 0.01;
+           document.getElementById('cfg-rounding').value = data.config.rounding;
+           document.getElementById('cfg-maxbet').value = data.config.maxBet;
+           document.getElementById('settings-modal').style.display = 'flex';
+        }
+      } catch(e) {
+        alert("Failed to load settings");
+      }
+    }
+
+    function closeSettings() {
+      document.getElementById('settings-modal').style.display = 'none';
+    }
+
+    async function toggleAutoBet() {
+      const isEnabled = document.getElementById('cfg-autobet-outside').checked;
+      try {
+        await fetch('/api/config', {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json' },
+           body: JSON.stringify({ autoBetEnabled: isEnabled })
+        });
+      } catch(e) {
+        alert("Failed to save auto bet state");
+      }
+    }
+
+    async function saveSettings() {
+      const payload = {
+         method: document.getElementById('cfg-method').value,
+         startingBankroll: parseFloat(document.getElementById('cfg-bankroll').value) || 1000,
+         kellyFraction: parseFloat(document.getElementById('cfg-kelly').value) || 1.0,
+         flatRatio: parseFloat(document.getElementById('cfg-flat').value) || 0.01,
+         rounding: parseInt(document.getElementById('cfg-rounding').value) || 10,
+         maxBet: parseInt(document.getElementById('cfg-maxbet').value) || 500
+      };
+      try {
+        await fetch('/api/config', {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json' },
+           body: JSON.stringify(payload)
+        });
+        closeSettings();
+      } catch(e) {
+        alert("Failed to save settings");
+      }
     }
 
     let lastDataStr = '';
@@ -143,8 +266,43 @@
         }
         
         const activeModulesCount = betsData.activeModules ? betsData.activeModules.length : 0;
-        document.getElementById('ts').textContent = 'Last Updated: ' + tsText + ' | Active Modules: ' + activeModulesCount;
+        document.getElementById('ts').textContent = 'Last Updated: ' + tsText;
         
+        // Render Modules
+        const modules = betsData.activeModules || [];
+        const now = Date.now();
+        let modHtml = '';
+        if (modules.length === 0) {
+          modHtml = '<div style="color:var(--dim);">No Bet Modules Connected. Start a module to accept bets.</div>';
+        } else {
+          for (const m of modules) {
+            const isOnline = (now - m.lastHeartbeat) < 35000;
+            const dotClass = isOnline ? 'status-online' : 'status-offline';
+            let acctHtml = '';
+            if (m.accounts && m.accounts.length > 0) {
+              for (const a of m.accounts) {
+                 const isReady = a.isAcceptingBets;
+                 const readyColor = isReady ? 'var(--green)' : 'var(--yellow)';
+                 const readyText = isReady ? 'READY' : (isOnline ? 'LAUNCHING' : 'OFFLINE');
+                 acctHtml += `<div class="acct-row"><span style="color:var(--text)">${a.label}</span><span style="color:${readyColor};font-weight:600;">${readyText}</span></div>`;
+              }
+            } else {
+              acctHtml = `<div class="acct-row" style="color:var(--dim)">No accounts configured</div>`;
+            }
+            modHtml += `
+              <div class="module-card">
+                <div class="m-title">
+                  <span>${m.label}</span>
+                  <span class="status-dot ${dotClass}" title="Last seen ${Math.round((now - m.lastHeartbeat)/1000)}s ago"></span>
+                </div>
+                <div class="m-url">${m.baseUrl}</div>
+                ${acctHtml}
+              </div>
+            `;
+          }
+        }
+        document.getElementById('modules-panel').innerHTML = modHtml;
+
         const bets = betsData.betLog || [];
         document.getElementById('count').textContent = bets.length + ' bets total';
         
@@ -162,8 +320,56 @@
       }
     }
     
+    async function initSettings() {
+      try {
+        const res = await fetch('/api/config');
+        const data = await res.json();
+        if (data.ok) {
+           document.getElementById('cfg-autobet-outside').checked = data.config.autoBetEnabled ?? true;
+        }
+      } catch(e) {}
+    }
+
+    initSettings();
     poll();
     setInterval(poll, 1000);
   </script>
+
+  <div class="modal-overlay" id="settings-modal">
+    <div class="modal">
+      <h2>Bet Settings</h2>
+      <div class="form-group">
+        <label>Stake Sizing Method</label>
+        <select id="cfg-method" style="width:100%; background:#0d1117; border:1px solid var(--border); color:var(--text); padding:6px; font-family:inherit; border-radius:4px;">
+          <option value="kelly">Kelly</option>
+          <option value="flat">Flat</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Starting Bankroll</label>
+        <input type="number" id="cfg-bankroll" />
+      </div>
+      <div class="form-group">
+        <label>Kelly Fraction (e.g. 0.5 for Half Kelly)</label>
+        <input type="number" step="0.1" id="cfg-kelly" />
+      </div>
+      <div class="form-group">
+        <label>Flat Ratio (e.g. 0.01 for 1% of Bankroll)</label>
+        <input type="number" step="0.001" id="cfg-flat" />
+      </div>
+      <div class="form-group">
+        <label>Rounding (e.g. 10 to round to nearest $10)</label>
+        <input type="number" id="cfg-rounding" />
+      </div>
+      <div class="form-group">
+        <label>Max Bet Limit</label>
+        <input type="number" id="cfg-maxbet" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeSettings()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveSettings()">Save</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

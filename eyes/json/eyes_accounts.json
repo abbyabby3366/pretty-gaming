@@ -3,6 +3,7 @@
     "label": "PG Eyes Winbox",
     "platform": "winbox",
     "launchMethod": "connect",
+    "enableDomCleanup": true,
     "profileIndex": 2,
     "debuggingPort": 9223,
     "run": true,
