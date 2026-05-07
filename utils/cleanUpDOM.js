@@ -1,19 +1,19 @@
 async function cleanUpDOM(page) {
   try {
     await page.evaluate(() => {
-      // 1. Remove promotional banners
+      // 1. Hide promotional banners instead of removing
       const banners = document.querySelectorAll(
         ".snap-mandatory.scroll-smooth.no-scrollbar",
       );
       banners.forEach((b) => {
         if (b.parentElement) {
-          b.parentElement.remove();
+          b.parentElement.style.display = "none";
         } else {
-          b.remove();
+          b.style.display = "none";
         }
       });
 
-      // 2. Remove non-baccarat tables
+      // 2. Hide non-baccarat tables instead of removing
       const lobbyContent = document.querySelector(".lobby-content");
       if (!lobbyContent) return;
 
@@ -42,15 +42,17 @@ async function cleanUpDOM(page) {
         }
 
         if (activeCategory !== "Baccarat") {
-          block.remove();
+          block.style.display = "none";
         }
       });
 
-      // 3. Remove cockroach roadmaps
+      // 3. Hide cockroach roadmaps instead of removing
       const roadmaps = document.querySelectorAll(
         ".roadmap-timeline img, .roadmap-donut img",
       );
-      roadmaps.forEach((img) => img.remove());
+      roadmaps.forEach((img) => {
+        img.style.display = "none";
+      });
     });
   } catch (e) {
     // Ignore errors

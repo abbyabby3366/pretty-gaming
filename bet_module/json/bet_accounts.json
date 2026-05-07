@@ -3,7 +3,7 @@
     "label": "PG Bet Winbox",
     "platform": "winbox",
     "launchMethod": "connect",
-    "enableDomCleanup": true,
+    "enableDomCleanup": false,
     "profileIndex": 12,
     "debuggingPort": 12323,
     "run": true,

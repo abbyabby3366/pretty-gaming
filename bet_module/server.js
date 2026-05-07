@@ -55,7 +55,19 @@ function sendHeartbeat() {
   });
 }
 
-
+async function updateBalance() {
+  if (isBrowserReady && browserPage) {
+    try {
+      const balance = await browserPage.evaluate(() => {
+        const el = document.querySelector("#balance-zone .block-newline");
+        return el ? el.textContent.trim() : null;
+      });
+      if (balance) {
+        latestBalance = balance;
+      }
+    } catch (e) {}
+  }
+}
 
 async function runBetPG() {
   while (true) {
@@ -189,6 +201,10 @@ async function initBrowser() {
 
       console.log(`\x1b[32m[Bet Module] Winbox Launch Successful! Module is ready to accept bets.\x1b[0m`);
       
+      // Get initial balance immediately and send update
+      await updateBalance();
+      sendHeartbeat();
+      
       if (acctConfig.enableDomCleanup) {
         console.log(`[Bet Module] DOM Cleanup is enabled. Starting periodic cleanup...`);
         domCleanupInterval = setInterval(() => {
@@ -228,6 +244,7 @@ async function initBrowser() {
 server.listen(PORT, () => {
   console.log(`[Bet Module] 🟢 Online on ${BASE_URL} | Targeting Central: ${CENTRAL_URL}`);
   setInterval(sendHeartbeat, 10000);
+  setInterval(updateBalance, 5000); // Check balance periodically
   sendHeartbeat(); // initial heartbeat
   runBetPG(); // start processing loop
   initBrowser(); // start browser lifecycle loop

@@ -9,6 +9,7 @@ const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017";
 let dbCollection = null;
 
 let betConfig = {
+  mode: 'round_robin',
   startingBankroll: 1000,
   method: 'kelly',
   kellyFraction: 1.0,
@@ -37,7 +38,8 @@ const betLog = [];
 const MAX_BET_LOG = 200;
 
 // Track active bet modules via heartbeat
-const activeModules = new Map(); // moduleId -> { baseUrl, lastHeartbeat }
+const activeModules = new Map(); // moduleId -> { baseUrl, lastHeartbeat, label }
+const cumulativeProfitMap = {};
 let lastRoundRobinIndex = 0;
 
 function resolveBetModuleTarget() {
@@ -45,8 +47,14 @@ function resolveBetModuleTarget() {
   // Filter modules that sent a heartbeat in the last 35 seconds
   const online = Array.from(activeModules.values()).filter(m => now - m.lastHeartbeat < 35000);
   if (online.length === 0) return null;
-  lastRoundRobinIndex = (lastRoundRobinIndex + 1) % online.length;
-  return online[lastRoundRobinIndex].baseUrl;
+  
+  if (betConfig.mode === 'round_robin' || !betConfig.mode) {
+    lastRoundRobinIndex = (lastRoundRobinIndex + 1) % online.length;
+    return online[lastRoundRobinIndex].baseUrl;
+  }
+  
+  // Default fallback if mode isn't recognized or we add others later
+  return online[0].baseUrl;
 }
 
 function parseJSONBody(req) {
@@ -82,6 +90,14 @@ function startDashboard(stateManager) {
       }
       betLog.sort((a, b) => new Date(b.time) - new Date(a.time));
       console.log(`[MongoDB] Connected. Loaded ${recentBets.length} recent bets from PRETTYGAMING_BETS.`);
+
+      const agg = await dbCollection.aggregate([
+        { $match: { profit: { $ne: null } } },
+        { $group: { _id: "$targetModule", total: { $sum: "$profit" } } }
+      ]).toArray();
+      for (const r of agg) {
+        cumulativeProfitMap[r._id] = r.total;
+      }
     } catch (err) {
       console.error("[MongoDB] Failed to connect:", err.message);
     }
@@ -117,13 +133,48 @@ function startDashboard(stateManager) {
           const betId = body.uuid;
           const existingBet = betLog.find(b => b.id === betId);
           if (existingBet) {
-            existingBet.roundOutcome = body.ocr?.winner || "UNKNOWN";
-            existingBet.outcomeState = body;
-            if (dbCollection) {
-              dbCollection.updateOne(
-                { id: existingBet.id },
-                { $set: { roundOutcome: existingBet.roundOutcome, outcomeState: existingBet.outcomeState } }
-              ).catch(() => {});
+            const newWinner = body.ocr?.winner || "UNKNOWN";
+            if (['B', 'P', 'T'].includes(newWinner) && existingBet.roundOutcome !== newWinner) {
+              existingBet.roundOutcome = newWinner;
+              existingBet.outcomeState = body;
+              
+              let profit = 0;
+              const amt = parseFloat(existingBet.actualBetAmount);
+              if (existingBet.outcome === 'SUCCESS' && !isNaN(amt)) {
+                let targetSide = '';
+                if (existingBet.target.includes('Banker')) targetSide = 'B';
+                else if (existingBet.target.includes('Player')) targetSide = 'P';
+                else if (existingBet.target.includes('Tie')) targetSide = 'T';
+
+                if (existingBet.roundOutcome === 'T' && targetSide !== 'T') {
+                  profit = 0;
+                } else if (existingBet.roundOutcome === targetSide) {
+                  if (targetSide === 'B') profit = amt * 0.95;
+                  else if (targetSide === 'P') profit = amt * 1;
+                  else if (targetSide === 'T') profit = amt * 8;
+                } else {
+                  profit = -amt;
+                }
+              }
+              existingBet.profit = profit;
+              if (existingBet.targetModule) {
+                cumulativeProfitMap[existingBet.targetModule] = (cumulativeProfitMap[existingBet.targetModule] || 0) + profit;
+              }
+
+              if (dbCollection) {
+                dbCollection.updateOne(
+                  { id: existingBet.id },
+                  { $set: { roundOutcome: existingBet.roundOutcome, outcomeState: existingBet.outcomeState, profit: existingBet.profit } }
+                ).catch(() => {});
+              }
+            } else if (!['B', 'P', 'T'].includes(existingBet.roundOutcome)) {
+              existingBet.outcomeState = body;
+              if (dbCollection) {
+                dbCollection.updateOne(
+                  { id: existingBet.id },
+                  { $set: { outcomeState: existingBet.outcomeState } }
+                ).catch(() => {});
+              }
             }
           }
           res.writeHead(200, { "Content-Type": "application/json" });
@@ -166,6 +217,12 @@ function startDashboard(stateManager) {
            recommendedBetAmount = amount;
         }
         
+        let targetModuleLabel = targetBaseUrl || "NONE";
+        if (targetBaseUrl) {
+           const mod = Array.from(activeModules.values()).find(m => m.baseUrl === targetBaseUrl);
+           if (mod && mod.label) targetModuleLabel = mod.label;
+        }
+
         const betEntry = {
           id: betId,
           time: new Date().toISOString(),
@@ -173,14 +230,15 @@ function startDashboard(stateManager) {
           round: body.ocr?.roundNumber,
           target: bestTarget,
           ev: bestEv,
-          targetModule: targetBaseUrl || "NONE",
+          targetModule: targetModuleLabel,
           reasonState: body,
           executionState: null,
           outcomeState: null,
           outcome: !betConfig.autoBetEnabled ? "AUTOBET_DISABLED" : (targetBaseUrl ? "PENDING" : "NO_MODULES_ONLINE"),
           recommendedBetAmount: recommendedBetAmount,
           actualBetAmount: "-",
-          roundOutcome: "WAITING"
+          roundOutcome: "WAITING",
+          profit: null
         };
         
         betLog.unshift(betEntry);
@@ -277,6 +335,84 @@ function startDashboard(stateManager) {
       return;
     }
 
+    if (req.method === "GET" && req.url.startsWith("/api/stats")) {
+      try {
+        if (!dbCollection) throw new Error("DB not connected");
+        
+        const bets = await dbCollection.find({ outcome: "SUCCESS" }).toArray();
+
+        const statsMap = {};
+        let totalStats = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0 };
+
+        for (const b of bets) {
+          const mod = b.targetModule || "UNKNOWN";
+          if (!statsMap[mod]) statsMap[mod] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0 };
+          
+          let amt = parseFloat(b.actualBetAmount);
+          if (isNaN(amt)) continue;
+
+          const profit = b.profit || 0;
+          const ev = b.ev || 0;
+
+          statsMap[mod].pnl += profit;
+          totalStats.pnl += profit;
+          
+          statsMap[mod].turnover += amt;
+          totalStats.turnover += amt;
+          
+          if (b.roundOutcome !== "T") {
+            statsMap[mod].effTurnover += amt;
+            totalStats.effTurnover += amt;
+          }
+
+          const evAmt = ev * amt;
+          statsMap[mod].expValue += evAmt;
+          totalStats.expValue += evAmt;
+        }
+
+        // Get current balance of nodes (from activeModules)
+        for (const m of activeModules.values()) {
+           const label = m.label || m.baseUrl;
+           if (!statsMap[label]) statsMap[label] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0 };
+           if (m.accounts && m.accounts[0] && m.accounts[0].balance != null) {
+              const bval = parseFloat(m.accounts[0].balance);
+              if (!isNaN(bval)) {
+                 statsMap[label].bal = bval;
+                 totalStats.bal += bval;
+              }
+           }
+        }
+
+        const formatStats = (st) => {
+          const effRebate = st.effTurnover * 0.012;
+          const avgEv = st.turnover > 0 ? (st.expValue / st.turnover) : 0;
+          return {
+            pnl: st.pnl,
+            effTurnover: st.effTurnover,
+            effRebate: effRebate,
+            expLoss: -st.expValue, // requested "expected loss"
+            avgEv: avgEv,
+            bal: st.bal
+          };
+        };
+
+        const result = {
+           nodes: {},
+           total: formatStats(totalStats)
+        };
+        for (const [mod, st] of Object.entries(statsMap)) {
+           result.nodes[mod] = formatStats(st);
+        }
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, stats: result }));
+      } catch(e) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+      return;
+    }
+
     if (req.method === "GET" && req.url.startsWith("/api/bets")) {
       let lastUpdated = null;
       try {
@@ -288,7 +424,10 @@ function startDashboard(stateManager) {
       res.end(JSON.stringify({ 
         ok: true, 
         betLog, 
-        activeModules: Array.from(activeModules.values()),
+        activeModules: Array.from(activeModules.values()).map(m => ({
+           ...m,
+           cumulativeProfit: cumulativeProfitMap[m.label] || 0
+        })),
         lastUpdated
       }));
       return;

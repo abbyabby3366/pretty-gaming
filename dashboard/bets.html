@@ -76,7 +76,20 @@
         <span style="font-weight:600;color:var(--yellow);">Auto Bet</span>
       </label>
       <button onclick="openSettings()" style="background:var(--cyan);color:#000;border:none;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit;font-weight:600;margin-left:5px;">Bet Settings</button>
+      <select id="filter-status" onchange="applyFilters()" style="background:#0d1117;border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:3px;font-family:inherit;font-size:11px;outline:none;">
+        <option value="ALL">All Status</option>
+        <option value="SUCCESS">Success</option>
+        <option value="FAILED">Failed</option>
+      </select>
+      <select id="filter-limit" onchange="applyFilters()" style="background:#0d1117;border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:3px;font-family:inherit;font-size:11px;outline:none;">
+        <option value="10">10 per page</option>
+        <option value="25">25 per page</option>
+        <option value="50">50 per page</option>
+        <option value="100" selected>100 per page</option>
+        <option value="500">500 per page</option>
+      </select>
       <button onclick="clearLogs()" style="background:var(--red);color:white;border:none;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit;font-weight:600;">Clear Logs</button>
+      <button onclick="openStats()" style="background:var(--blue);color:white;border:none;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit;font-weight:600;margin-left:5px;">View Stats</button>
       <a href="/">← Back to Tables</a>
     </div>
   </div>
@@ -139,6 +152,30 @@
       const targetCls = 'target-' + b.target;
       const statusCls = 'status-' + b.outcome;
       const isActive = openedReasons.has(b.id) ? 'active' : '';
+
+      let profitHtml = '';
+      const amt = parseFloat(b.actualBetAmount);
+      if (b.outcome === 'SUCCESS' && !isNaN(amt) && ['B', 'P', 'T'].includes(b.roundOutcome)) {
+        let profit = 0;
+        let targetSide = '';
+        if (b.target.includes('Banker')) targetSide = 'B';
+        else if (b.target.includes('Player')) targetSide = 'P';
+        else if (b.target.includes('Tie')) targetSide = 'T';
+
+        if (b.roundOutcome === 'T' && targetSide !== 'T') {
+          profit = 0;
+        } else if (b.roundOutcome === targetSide) {
+          if (targetSide === 'B') profit = amt * 0.95;
+          else if (targetSide === 'P') profit = amt * 1;
+          else if (targetSide === 'T') profit = amt * 8;
+        } else {
+          profit = -amt;
+        }
+
+        const sign = profit > 0 ? '+' : '';
+        const color = profit > 0 ? 'var(--green)' : (profit < 0 ? 'var(--red)' : 'var(--dim)');
+        profitHtml = `<div style="color:${color};font-size:11px;margin-top:4px;font-weight:600;">${sign}${profit.toFixed(2)}</div>`;
+      }
       
       return `
         <tr>
@@ -162,6 +199,7 @@
           </td>
           <td>
             <div style="font-weight:600;font-size:14px;color:${b.roundOutcome==='UNKNOWN'?'var(--dim)':(b.roundOutcome==='WAITING'?'var(--yellow)':'var(--purple)')}">${b.roundOutcome}</div>
+            ${profitHtml}
           </td>
           <td style="text-align:right;">
             <button class="btn-reason" onclick="toggleReason('${b.id}')">View JSON</button>
@@ -188,18 +226,31 @@
       `;
     }
 
+    function updateMethodVisibility() {
+      const method = document.getElementById('cfg-method').value;
+      if (method === 'kelly') {
+        document.getElementById('group-kelly').style.display = 'block';
+        document.getElementById('group-flat').style.display = 'none';
+      } else {
+        document.getElementById('group-kelly').style.display = 'none';
+        document.getElementById('group-flat').style.display = 'block';
+      }
+    }
+
     async function openSettings() {
       try {
         const res = await fetch('/api/config');
         const data = await res.json();
         if (data.ok) {
            document.getElementById('cfg-autobet-outside').checked = data.config.autoBetEnabled ?? true;
+           document.getElementById('cfg-mode').value = data.config.mode || 'round_robin';
            document.getElementById('cfg-method').value = data.config.method || 'kelly';
            document.getElementById('cfg-bankroll').value = data.config.startingBankroll;
            document.getElementById('cfg-kelly').value = data.config.kellyFraction;
            document.getElementById('cfg-flat').value = data.config.flatRatio || 0.01;
            document.getElementById('cfg-rounding').value = data.config.rounding;
            document.getElementById('cfg-maxbet').value = data.config.maxBet;
+           updateMethodVisibility();
            document.getElementById('settings-modal').style.display = 'flex';
         }
       } catch(e) {
@@ -226,6 +277,7 @@
 
     async function saveSettings() {
       const payload = {
+         mode: document.getElementById('cfg-mode').value,
          method: document.getElementById('cfg-method').value,
          startingBankroll: parseFloat(document.getElementById('cfg-bankroll').value) || 1000,
          kellyFraction: parseFloat(document.getElementById('cfg-kelly').value) || 1.0,
@@ -246,6 +298,29 @@
     }
 
     let lastDataStr = '';
+    let currentBetsData = [];
+
+    function applyFilters() {
+      const statusFilter = document.getElementById('filter-status').value;
+      const limitFilter = parseInt(document.getElementById('filter-limit').value, 10);
+      
+      let filtered = currentBetsData;
+      if (statusFilter !== 'ALL') {
+        filtered = filtered.filter(b => b.outcome === statusFilter);
+      }
+      
+      document.getElementById('count').textContent = filtered.length + ' bets';
+      
+      if (limitFilter && limitFilter > 0) {
+        filtered = filtered.slice(0, limitFilter);
+      }
+      
+      const html = filtered.length 
+        ? filtered.map(renderBet).join('') 
+        : '<tr><td colspan="8" style="text-align:center;color:var(--dim);padding:20px;">No bets match criteria.</td></tr>';
+      
+      document.getElementById('tb').innerHTML = html;
+    }
 
     async function poll(){
       try{
@@ -280,7 +355,7 @@
                  const readyColor = isReady ? 'var(--green)' : 'var(--yellow)';
                  const readyText = isReady ? 'READY' : (isOnline ? 'LAUNCHING' : 'OFFLINE');
                  const balanceText = a.balance != null ? `<span style="color:var(--text);margin-right:10px;">Balance: <strong style="color:var(--green)">${a.balance}</strong></span>` : '';
-                 acctHtml += `<div class="acct-row" style="justify-content:flex-end;">${balanceText}<span style="color:${readyColor};font-weight:600;">${readyText}</span></div>`;
+                 acctHtml += `<div class="acct-row">${balanceText}<span style="color:${readyColor};font-weight:600;">${readyText}</span></div>`;
               }
             } else {
               acctHtml = `<div class="acct-row" style="color:var(--dim)">No accounts configured</div>`;
@@ -291,13 +366,20 @@
               headerLabel = m.accounts[0].label;
             }
 
+            const profit = m.cumulativeProfit || 0;
+            const profitSign = profit > 0 ? '+' : '';
+            const profitColor = profit > 0 ? 'var(--green)' : (profit < 0 ? 'var(--red)' : 'var(--text)');
+
             modHtml += `
               <div class="module-card">
                 <div class="m-title">
                   <span>${headerLabel}</span>
                   <span class="status-dot ${dotClass}" title="Last seen ${Math.round((now - m.lastHeartbeat)/1000)}s ago"></span>
                 </div>
-                <div class="m-url">${m.baseUrl}</div>
+                <div class="m-url" style="display:flex; justify-content:space-between;">
+                  <span>${m.baseUrl}</span>
+                  <span style="color:${profitColor}; font-weight:600;" title="Cumulative Profit/Loss">P/L: ${profitSign}${profit.toFixed(2)}</span>
+                </div>
                 ${acctHtml}
               </div>
             `;
@@ -306,16 +388,12 @@
         document.getElementById('modules-panel').innerHTML = modHtml;
 
         const bets = betsData.betLog || [];
-        document.getElementById('count').textContent = bets.length + ' bets total';
         
         const currentDataStr = JSON.stringify(bets);
         if (currentDataStr !== lastDataStr) {
           lastDataStr = currentDataStr;
-          const html = bets.length 
-            ? bets.map(renderBet).join('') 
-            : '<tr><td colspan="8" style="text-align:center;color:var(--dim);padding:20px;">No bets logged yet.</td></tr>';
-          
-          document.getElementById('tb').innerHTML = html;
+          currentBetsData = bets;
+          applyFilters();
         }
       }catch(e){
         // silent
@@ -332,6 +410,58 @@
       } catch(e) {}
     }
 
+    async function openStats() {
+      document.getElementById('stats-modal').style.display = 'flex';
+      document.getElementById('stats-content').innerHTML = '<div style="padding:20px; color:var(--dim); text-align:center;">Loading stats from database...</div>';
+      try {
+        const res = await fetch('/api/stats');
+        const data = await res.json();
+        if (data.ok) {
+           let html = '<table style="width:100%; border-collapse:collapse; margin-bottom:10px; font-size:11px;">';
+           html += '<thead><tr><th style="padding-bottom:10px;">Node</th><th style="text-align:right; padding-bottom:10px;">Bal</th><th style="text-align:right; padding-bottom:10px;">PNL</th><th style="text-align:right; padding-bottom:10px;">Eff. Turnover</th><th style="text-align:right; padding-bottom:10px;">Eff. Rebate</th><th style="text-align:right; padding-bottom:10px;">Exp. Loss</th><th style="text-align:right; padding-bottom:10px;">Avg EV</th></tr></thead><tbody>';
+           
+           for (const [node, st] of Object.entries(data.stats.nodes)) {
+              html += renderStatRow(node, st);
+           }
+           
+           html += renderStatRow('TOTAL', data.stats.total, true);
+           html += '</tbody></table>';
+           document.getElementById('stats-content').innerHTML = html;
+        } else {
+           document.getElementById('stats-content').innerHTML = '<div style="color:var(--red); padding:20px;">Failed to load stats: ' + data.error + '</div>';
+        }
+      } catch(e) {
+        document.getElementById('stats-content').innerHTML = '<div style="color:var(--red); padding:20px;">Failed to load stats (Network error).</div>';
+      }
+    }
+
+    function renderStatRow(name, st, isTotal=false) {
+       const pnlSign = st.pnl > 0 ? '+' : '';
+       const pnlCol = st.pnl > 0 ? 'var(--green)' : (st.pnl < 0 ? 'var(--red)' : 'var(--text)');
+       
+       const explSign = st.expLoss > 0 ? '+' : '';
+       const explCol = st.expLoss > 0 ? 'var(--red)' : 'var(--green)';
+
+       const evPerc = (st.avgEv * 100).toFixed(2) + '%';
+       const evCol = st.avgEv > 0 ? 'var(--green)' : 'var(--red)';
+
+       return `
+         <tr style="${isTotal ? 'border-top:1px solid rgba(255,255,255,0.1); font-weight:600; background:var(--card);' : ''}">
+           <td style="color:var(--cyan); padding:8px 10px; border-bottom:1px solid rgba(255,255,255,0.05);">${name}</td>
+           <td style="text-align:right; color:var(--text); padding:8px 10px; border-bottom:1px solid rgba(255,255,255,0.05);">${st.bal.toFixed(2)}</td>
+           <td style="text-align:right; color:${pnlCol}; padding:8px 10px; border-bottom:1px solid rgba(255,255,255,0.05);">${pnlSign}${st.pnl.toFixed(2)}</td>
+           <td style="text-align:right; color:var(--text); padding:8px 10px; border-bottom:1px solid rgba(255,255,255,0.05);">${st.effTurnover.toFixed(2)}</td>
+           <td style="text-align:right; color:var(--blue); padding:8px 10px; border-bottom:1px solid rgba(255,255,255,0.05);">+${st.effRebate.toFixed(2)}</td>
+           <td style="text-align:right; color:${explCol}; padding:8px 10px; border-bottom:1px solid rgba(255,255,255,0.05);">${explSign}${st.expLoss.toFixed(2)}</td>
+           <td style="text-align:right; color:${evCol}; padding:8px 10px; border-bottom:1px solid rgba(255,255,255,0.05);">${evPerc}</td>
+         </tr>
+       `;
+    }
+
+    function closeStats() {
+      document.getElementById('stats-modal').style.display = 'none';
+    }
+
     initSettings();
     poll();
     setInterval(poll, 1000);
@@ -341,8 +471,14 @@
     <div class="modal">
       <h2>Bet Settings</h2>
       <div class="form-group">
+        <label>Mode</label>
+        <select id="cfg-mode" style="width:100%; background:#0d1117; border:1px solid var(--border); color:var(--text); padding:6px; font-family:inherit; border-radius:4px;">
+          <option value="round_robin">Round Robin</option>
+        </select>
+      </div>
+      <div class="form-group">
         <label>Stake Sizing Method</label>
-        <select id="cfg-method" style="width:100%; background:#0d1117; border:1px solid var(--border); color:var(--text); padding:6px; font-family:inherit; border-radius:4px;">
+        <select id="cfg-method" onchange="updateMethodVisibility()" style="width:100%; background:#0d1117; border:1px solid var(--border); color:var(--text); padding:6px; font-family:inherit; border-radius:4px;">
           <option value="kelly">Kelly</option>
           <option value="flat">Flat</option>
         </select>
@@ -351,11 +487,11 @@
         <label>Starting Bankroll</label>
         <input type="number" id="cfg-bankroll" />
       </div>
-      <div class="form-group">
+      <div class="form-group" id="group-kelly">
         <label>Kelly Fraction (e.g. 0.5 for Half Kelly)</label>
         <input type="number" step="0.1" id="cfg-kelly" />
       </div>
-      <div class="form-group">
+      <div class="form-group" id="group-flat">
         <label>Flat Ratio (e.g. 0.01 for 1% of Bankroll)</label>
         <input type="number" step="0.001" id="cfg-flat" />
       </div>
@@ -370,6 +506,20 @@
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeSettings()">Cancel</button>
         <button class="btn btn-primary" onclick="saveSettings()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="stats-modal">
+    <div class="modal" style="width:700px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+        <h2 style="margin:0; color:var(--cyan);">Performance Stats</h2>
+        <button onclick="closeStats()" style="background:none;border:none;color:var(--text);cursor:pointer;font-size:18px;">&times;</button>
+      </div>
+      <div id="stats-content" style="max-height:60vh; overflow-y:auto; background:#0d1117; border:1px solid var(--border); border-radius:4px;">
+      </div>
+      <div class="modal-actions" style="margin-top:15px;">
+        <button class="btn btn-secondary" onclick="closeStats()">Close</button>
       </div>
     </div>
   </div>

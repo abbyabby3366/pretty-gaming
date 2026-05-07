@@ -250,7 +250,7 @@ class TableStateManager {
     ts.lastEvResult = null;
     const msg = `[SHOE] ${ts.tableName}: Reset to fresh shoe (${reason})`;
     console.log(`\x1b[33m${msg}\x1b[0m`);
-    if (reason.startsWith('Invalid state') || reason.includes('Shuffling detected')) {
+    if (reason.startsWith('Invalid state')) {
       sendWhatsAppNotification(msg).catch(err => console.error("WhatsApp Notification failed:", err));
     }
   }
