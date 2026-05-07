@@ -15,6 +15,7 @@ const betQueue = [];
 let isBrowserReady = false;
 let browserPage = null;
 let domCleanupInterval = null;
+let latestBalance = null;
 
 const initialAccountsPath = path.resolve(__dirname, "json", "bet_accounts.json");
 const initialAcctConfig = buildAccountConfig(0, initialAccountsPath);
@@ -42,7 +43,7 @@ function sendHeartbeat() {
     moduleId: MODULE_ID,
     baseUrl: BASE_URL,
     label: currentModuleLabel,
-    accounts: [{ label: currentAccountLabel, isAcceptingBets: isBrowserReady }]
+    accounts: [{ label: currentAccountLabel, isAcceptingBets: isBrowserReady, balance: latestBalance }]
   };
 
   fetch(`${CENTRAL_URL}/api/bet-module/heartbeat`, {
@@ -114,6 +115,9 @@ async function runBetPG() {
         reason = result.reason;
         if (result.betAmount) {
           bet.actualBetAmount = result.betAmount;
+        }
+        if (result.balance !== undefined && result.balance !== null) {
+          latestBalance = result.balance;
         }
       }
       

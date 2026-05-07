@@ -85,6 +85,7 @@
     <span class="title">PG Eyes</span>
     <div class="meta">
       <a href="/bets" style="color:var(--cyan);text-decoration:none;border:1px solid var(--border);padding:1px 5px;border-radius:2px;font-size:9px;">Bets Log</a>
+      <button class="rst" onclick="resetAllTables()">Reset All</button>
       <button class="tog" id="deckToggle" onclick="toggleDeck()">Deck</button>
       <button class="tog" id="edgeToggle" onclick="toggleEdge()">Edge Only</button>
       <span class="live">● LIVE</span>
@@ -264,6 +265,16 @@
         const d=await r.json();
         if(d.ok)poll();
       }catch(e){}
+    }
+
+    async function resetAllTables() {
+      const p = prompt('Type "reset" to confirm resetting ALL tables to fresh shoes:');
+      if (p !== 'reset') return;
+      try {
+        const r = await fetch('/reset-all', { method: 'POST' });
+        const d = await r.json();
+        if (d.ok) poll();
+      } catch (e) {}
     }
   </script>
 </body>

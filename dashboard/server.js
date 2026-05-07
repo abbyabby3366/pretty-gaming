@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 const { MongoClient } = require("mongodb");
+const { sendWhatsAppNotification } = require("../utils/whatsapp_notifier");
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017";
 let dbCollection = null;
@@ -293,7 +294,25 @@ function startDashboard(stateManager) {
       return;
     }
 
-    if (req.method === "POST" && req.url.startsWith("/reset")) {
+    if (req.method === "POST" && req.url === "/reset-all") {
+      if (!_stateManager) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "No state manager" }));
+        return;
+      }
+      for (const ts of _stateManager.tables.values()) {
+        _stateManager._resetShoe(ts, "Manual reset all from dashboard");
+      }
+      
+      sendWhatsAppNotification("[DASHBOARD] User manually reset ALL tables to fresh shoes.")
+        .catch(err => console.error("WhatsApp Notification failed:", err));
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, message: "All tables reset" }));
+      return;
+    }
+
+    if (req.method === "POST" && req.url.startsWith("/reset?")) {
       const url = new URL(req.url, `http://localhost:${PORT}`);
       const tableName = url.searchParams.get("table");
 
@@ -353,3 +372,7 @@ function startDashboard(stateManager) {
 }
 
 module.exports = { startDashboard };
+
+if (require.main === module) {
+  startDashboard(null);
+}

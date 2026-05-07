@@ -4,7 +4,7 @@ const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, '..', '.env') });
 const { getBrowserArgs } = require("../utils/browserArgs");
 const { runEyesPG, stateManager } = require("./runEyesPG");
-const { startDashboard } = require("../dashboard/server");
+
 const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
 
 (async () => {
@@ -12,7 +12,6 @@ const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
   const extractorPath = path.join(__dirname, "dom_extractor.js");
   const extractorCode = fs.readFileSync(extractorPath, "utf8");
 
-  startDashboard(stateManager);
 
   while (true) {
     let browserContext = null;

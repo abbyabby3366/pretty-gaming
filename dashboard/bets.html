@@ -279,7 +279,8 @@
                  const isReady = a.isAcceptingBets;
                  const readyColor = isReady ? 'var(--green)' : 'var(--yellow)';
                  const readyText = isReady ? 'READY' : (isOnline ? 'LAUNCHING' : 'OFFLINE');
-                 acctHtml += `<div class="acct-row" style="justify-content:flex-end;"><span style="color:${readyColor};font-weight:600;">${readyText}</span></div>`;
+                 const balanceText = a.balance != null ? `<span style="color:var(--text);margin-right:10px;">Balance: <strong style="color:var(--green)">${a.balance}</strong></span>` : '';
+                 acctHtml += `<div class="acct-row" style="justify-content:flex-end;">${balanceText}<span style="color:${readyColor};font-weight:600;">${readyText}</span></div>`;
               }
             } else {
               acctHtml = `<div class="acct-row" style="color:var(--dim)">No accounts configured</div>`;

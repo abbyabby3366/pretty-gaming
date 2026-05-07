@@ -55,7 +55,11 @@ async function executeBetInBrowser(page, betConfig) {
       let targetBetArea = null;
       for (let area of betAreas) {
         const areaText = (area.innerText || area.textContent || "").replace(/\s+/g, " ").trim();
-        if (areaText === domLabel || areaText.startsWith(domLabel + " ")) {
+        
+        // Exact match OR starts with label followed by a number (odds like 1:1)
+        // This prevents "Player" from accidentally matching "Player Pair 11:1"
+        const regex = new RegExp(`^${domLabel}(\\s+\\d.*)?$`, 'i');
+        if (regex.test(areaText)) {
           targetBetArea = area;
           break;
         }
@@ -94,11 +98,20 @@ async function executeBetInBrowser(page, betConfig) {
         }
       }
 
+      // 7. GET BALANCE
+      let currentBalance = null;
+      try {
+        const balanceZone = document.querySelector("#balance-zone .block-newline");
+        if (balanceZone) {
+          currentBalance = balanceZone.textContent.trim();
+        }
+      } catch (e) {}
+
       if (!betConfirmed) {
-        return { success: false, reason: "Betting chip not placed visually" };
+        return { success: false, reason: "Betting chip not placed visually", balance: currentBalance };
       }
 
-      return { success: true, betAmount: betAmount };
+      return { success: true, betAmount: betAmount, balance: currentBalance };
     }, betConfig);
   } catch (err) {
     console.error(`[Bet Module] Puppeteer evaluate error:`, err.message);

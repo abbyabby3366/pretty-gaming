@@ -13,6 +13,8 @@
  *   Round number drops significantly         =>  likely new shoe, reset deck
  */
 
+const { sendWhatsAppNotification } = require('../utils/whatsapp_notifier');
+
 // ─── Card Name → 13-slot Rank Index ─────────────────────────────────────
 // Index: 0=A, 1=2, 2=3, 3=4, 4=5, 5=6, 6=7, 7=8, 8=9, 9=T, 10=J, 11=Q, 12=K
 
@@ -246,7 +248,11 @@ class TableStateManager {
     ts.lastPlayerCards = [];
     ts.lastBankerCards = [];
     ts.lastEvResult = null;
-    console.log(`\x1b[33m[SHOE] ${ts.tableName}: Reset to fresh shoe (${reason})\x1b[0m`);
+    const msg = `[SHOE] ${ts.tableName}: Reset to fresh shoe (${reason})`;
+    console.log(`\x1b[33m${msg}\x1b[0m`);
+    if (reason.startsWith('Invalid state') || reason.includes('Shuffling detected')) {
+      sendWhatsAppNotification(msg).catch(err => console.error("WhatsApp Notification failed:", err));
+    }
   }
 
   getTable(tableName) {

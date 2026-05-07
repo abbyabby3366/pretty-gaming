@@ -5,9 +5,13 @@ sources = ["baccarat_analyzer_v3/src/**/*.rs", "baccarat_analyzer_v3/Cargo.toml"
 outputs = ["baccarat_analyzer_v3/target/release/analyzer_bin.exe"]
 
 [tasks.eyes]
-description = "Build analyzer → Run Eyes + Dashboard"
+description = "Build analyzer → Run Eyes"
 depends = ["build:rust"]
 run = "node eyes/launch_eyes_PG_hippo.js"
+
+[tasks.central]
+description = "Run the Central Dashboard server"
+run = "node dashboard/server.js"
 
 [tasks.bet]
 description = "Run the simulated Bet Module"
