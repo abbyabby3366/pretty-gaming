@@ -65,6 +65,7 @@ class TableState {
     this.lastBankerCards = [];
     this.lastEvResult = null;
     this.bufferedCards = { player: [], banker: [] };
+    this.restored = false; // true if loaded from saved state, cleared after first validation
   }
 
   get remaining() {
@@ -97,6 +98,21 @@ class TableStateManager {
       const prevState = ts.lastState;
       const newState = table.state;
       const newRound = table.round;
+
+      // ── Validate restored state on first tick ──
+      if (ts.restored) {
+        ts.restored = false;
+        if (newRound < ts.lastRound) {
+          this._resetShoe(ts, `Stale state: round went from ${ts.lastRound} → ${newRound}`);
+          events.push({
+            type: "SHOE_RESET",
+            tableName: name,
+            reason: `Round dropped ${ts.lastRound} → ${newRound} after restore`,
+          });
+        } else {
+          console.log(`\x1b[36m[STATE] ${name}: Validated (saved R${ts.lastRound} → live R${newRound})\x1b[0m`);
+        }
+      }
 
       // ── Reset deck on shuffling ──
       if (newState === "Shuffling" && prevState !== "Shuffling") {
@@ -263,6 +279,7 @@ class TableStateManager {
       ts.lastBankerCards = saved.lastBankerCards || [];
       ts.lastEvResult = saved.lastEvResult || null;
       ts.bufferedCards = saved.bufferedCards || { player: [], banker: [] };
+      ts.restored = true; // mark for validation on first live tick
       this.tables.set(name, ts);
     }
     console.log(`\x1b[36m[STATE] Restored ${this.tables.size} tables from saved state\x1b[0m`);

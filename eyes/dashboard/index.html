@@ -88,7 +88,7 @@
       <button class="tog" id="edgeToggle" onclick="toggleEdge()">Edge Only</button>
       <span class="live">● LIVE</span>
       <span id="ts">—</span>
-      <span id="tc">0</span>
+      <span id="tc" style="color: white; font-weight: 600;">0</span>
     </div>
   </div>
   <div class="main">
@@ -102,16 +102,22 @@
   <script>
     const R=['A','2','3','4','5','6','7','8','9','T','J','Q','K'];
     let MIN_EV=0.0015; // updated from server config each tick
-    let showDeck=false;
-    let edgeOnly=false;
-    document.body.classList.add('hide-deck');
+    let showDeck=localStorage.getItem('showDeck')==='true';
+    let edgeOnly=localStorage.getItem('edgeOnly')==='true';
+    document.body.classList.toggle('hide-deck',!showDeck);
+    // Elements are already in DOM so we can toggle their classes immediately
+    document.getElementById('deckToggle').classList.toggle('on',showDeck);
+    document.getElementById('edgeToggle').classList.toggle('on',edgeOnly);
+
     function toggleDeck(){
       showDeck=!showDeck;
+      localStorage.setItem('showDeck',showDeck);
       document.body.classList.toggle('hide-deck',!showDeck);
       document.getElementById('deckToggle').classList.toggle('on',showDeck);
     }
     function toggleEdge(){
       edgeOnly=!edgeOnly;
+      localStorage.setItem('edgeOnly',edgeOnly);
       document.getElementById('edgeToggle').classList.toggle('on',edgeOnly);
       poll();
     }
@@ -129,7 +135,7 @@
 
     function ev(v){
       if(v==null)return'—';
-      const p=(v*100).toFixed(3);
+      const p=(v*100).toFixed(4);
       return v>=0?'+'+p+'%':p+'%';
     }
     function evCls(v){return v>=MIN_EV?'pos':'dim';}
@@ -155,7 +161,7 @@
         evH=`<div class="ev"><span class="dim">EV</span>
           <span>P:<span class="${evCls(pa)}">${ev(pa)}</span></span>
           <span>B:<span class="${evCls(ba)}">${ev(ba)}</span></span>
-          <span class="dim">T:${(t.ev.tie.prob*100).toFixed(1)}%</span>
+          <span class="dim">T:${(t.ev.tie.prob*100).toFixed(4)}%</span>
         </div>`;
         if(e)evH+=`<div class="alert">🤑 ${e.target} ${ev(e.ev)}</div>`;
       }
@@ -185,21 +191,60 @@
           if(e.ev.best)evLine+=`<div class="edge-alert">🤑 ${e.ev.best.target} ${ev(e.ev.best.ev)}</div>`;
         }
 
+        let logTime = '';
+        if (e.time && e.time.includes('T')) {
+          const parts = e.time.split('T');
+          const dObj = new Date(parts[0] + 'T' + parts[1].replace(/-/g, ':') + 'Z');
+          if (!isNaN(dObj)) {
+            logTime = dObj.toLocaleTimeString('en-GB', { timeZone: 'Asia/Singapore', hour12: false });
+          } else {
+            logTime = parts[1].replace('Z','').slice(0,8);
+          }
+        }
+
         return`<div class="log-item">
-          <span class="lt">${e.time?e.time.split('T')[1]?.replace('Z','')?.slice(0,12):''}</span> <span class="ln">${e.table}</span> R${e.round}
+          <span class="lt">${logTime}</span> <span class="ln">${e.table}</span> R${e.round}
           <span class="${wCls}">${wLabel}</span> ${cards} [${e.deckRemaining}]
           ${evLine}
         </div>`;
       }).join('');
     }
 
+    let lastPollSuccess = Date.now();
+    setInterval(() => {
+      const liveSpan = document.querySelector('.live');
+      if (liveSpan) {
+        if (Date.now() - lastPollSuccess > 5000) {
+          liveSpan.style.color = 'var(--red)';
+          liveSpan.textContent = '● OFFLINE';
+        } else {
+          liveSpan.style.color = 'var(--green)';
+          liveSpan.textContent = '● LIVE';
+        }
+      }
+    }, 1000);
+
+    let lastTimestampStr = '';
+
     async function poll(){
       try{
         const r=await fetch('/tables_state.json?'+Date.now());
         if(!r.ok)return;
         const d=await r.json();
+        
+        if (d.timestamp !== lastTimestampStr) {
+          lastTimestampStr = d.timestamp;
+          lastPollSuccess = Date.now();
+        }
+
         if(d.config)MIN_EV=d.config.minEvThreshold||0.0015;
-        document.getElementById('ts').textContent=d.timestamp||'—';
+        let tsText = d.timestamp || '—';
+        if (d.timestamp && d.timestamp.includes('T')) {
+          const parts = d.timestamp.split('T');
+          const dObj = new Date(parts[0] + 'T' + parts[1].replace(/-/g, ':') + 'Z');
+          if (!isNaN(dObj)) tsText = dObj.toLocaleString('sv-SE', { timeZone: 'Asia/Singapore' });
+        }
+        document.getElementById('ts').textContent=tsText;
         document.getElementById('tc').textContent=(d.totalTables||0)+' tables';
         const g=document.getElementById('g');
         if(d.tables&&d.tables.length){

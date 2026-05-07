@@ -16,6 +16,19 @@ function loadState() {
   try {
     if (fs.existsSync(STATE_FILE)) {
       const raw = JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
+
+      // Check staleness — if saved more than 1 hour ago, start fresh
+      const savedAt = raw.savedAt ? new Date(raw.savedAt).getTime() : 0;
+      const ageMs = Date.now() - savedAt;
+      const ageMin = Math.round(ageMs / 60000);
+
+      const maxAgeMin = parseInt(process.env.STATE_MAX_AGE_MINUTES) || 60;
+      if (ageMs > maxAgeMin * 60 * 1000) {
+        console.log(`\x1b[33m[STATE] Saved state is ${ageMin}min old (>${maxAgeMin}min), starting fresh.\x1b[0m`);
+        return;
+      }
+
+      console.log(`\x1b[36m[STATE] State is ${ageMin}min old, restoring...\x1b[0m`);
       stateManager.restore(raw.tables || {});
       // Restore event log
       if (raw.eventLog && Array.isArray(raw.eventLog)) {
