@@ -9,6 +9,7 @@ const path = require("path");
 const fs = require("fs");
 const { spawn } = require("child_process");
 const { getBrowserArgs } = require("./browserArgs");
+const { checkPGpage } = require("./check_page_pg");
 
 const LOGIN_TIMESTAMPS_FILE = path.resolve(__dirname, "login_timestamps.json");
 function readLoginTimestamps() {
@@ -130,35 +131,7 @@ async function evaluateState(browser, urls) {
   return { state: bestState, page: targetPage };
 }
 
-async function handlePGWelcomeAndMultiplay(page, logger) {
-  // 1. Wait for and click Confirm/Continue
-  try {
-    await page.waitForFunction(() => {
-      const btns = Array.from(document.querySelectorAll(".clickActive"));
-      const confirmBtn = btns.find((el) => el.innerText && (el.innerText.includes("Confirm") || el.innerText.includes("Continue")));
-      if (confirmBtn) { confirmBtn.click(); return true; }
-      return false;
-    }, { timeout: 8000 });
-    logger.log("Clicked 'Confirm/Continue' on Welcome modal.");
-  } catch (err) {}
-  
-  // 2. Wait for and click Multiplay
-  try {
-    await sleep(1000); // Give it a moment after Confirm
-    await page.waitForFunction(() => {
-      // Find by class and text, or by image src
-      const btns = Array.from(document.querySelectorAll(".btn-lobby, .clickActive"));
-      const multiBtn = btns.find(el => el.innerText && el.innerText.includes("Multiplay")) 
-                    || document.querySelector('img[src*="game_multi.svg"]')?.closest('.clickActive');
-      
-      if (multiBtn) { multiBtn.click(); return true; }
-      return false;
-    }, { timeout: 10000 });
-    logger.log("Clicked 'Multiplay' button.");
-  } catch (err) {
-    logger.warn("Could not find 'Multiplay' button within timeout.");
-  }
-}
+
 
 async function launchAccount(acctConfig) {
   const { chrome, credentials, urls, platform, launchMethod } = acctConfig;
@@ -214,7 +187,7 @@ async function launchAccount(acctConfig) {
       
       await page.goto("https://hippo168.com/lobby/multiplay", { waitUntil: "networkidle2", timeout: TIMEOUTS.navigationWait }).catch(() => {});
       
-      await handlePGWelcomeAndMultiplay(page, logger);
+      await checkPGpage(page, logger);
       
       return { browser, page };
   }
@@ -355,7 +328,7 @@ async function launchAccount(acctConfig) {
     if (currentState === STATES.IN_GAME) {
       logger.log("SUCCESS: Reached Pretty Gaming lobby!");
       
-      await handlePGWelcomeAndMultiplay(page, logger);
+      await checkPGpage(page, logger);
       
       return { browser, page };
     }

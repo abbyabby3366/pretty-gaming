@@ -202,7 +202,7 @@ function startDashboard(stateManager) {
         }
 
         // Send to bet module
-        fetch(targetBaseUrl + "/neuronbaccarat/bet", {
+        fetch(targetBaseUrl + "/prettygaming/bet", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(betEntry)
@@ -277,8 +277,19 @@ function startDashboard(stateManager) {
     }
 
     if (req.method === "GET" && req.url.startsWith("/api/bets")) {
+      let lastUpdated = null;
+      try {
+        const stats = fs.statSync(path.join(ROOT, "tables_state.json"));
+        lastUpdated = stats.mtime.toISOString();
+      } catch (e) {}
+
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true, betLog, activeModules: Array.from(activeModules.values()) }));
+      res.end(JSON.stringify({ 
+        ok: true, 
+        betLog, 
+        activeModules: Array.from(activeModules.values()),
+        lastUpdated
+      }));
       return;
     }
 

@@ -7,17 +7,14 @@
 async function executeBetInBrowser(page, betConfig) {
   try {
     return await page.evaluate(async (config) => {
-      // 1. SELECT CHIP
+      // 1. VERIFY WE HAVE A CLICKS SEQUENCE
+      if (!config.clicksSequence || config.clicksSequence.length === 0) {
+        return { success: false, reason: "No valid chip clicks calculated for bet amount" };
+      }
+
       const chips = document.querySelectorAll(config.chipSelector);
-      if (chips.length > 0) {
-        if (chips[config.chipIndex]) {
-          chips[config.chipIndex].click();
-          await new Promise(resolve => setTimeout(resolve, config.clickDelayMs));
-        } else {
-          return { success: false, reason: "Chip index out of bounds" };
-        }
-      } else {
-        return { success: false, reason: "No chips found" };
+      if (chips.length === 0) {
+        return { success: false, reason: "No chips found on screen" };
       }
 
       // 2. FIND TABLE
@@ -65,14 +62,34 @@ async function executeBetInBrowser(page, betConfig) {
       }
       if (!targetBetArea) return { success: false, reason: `Bet area not found (looking for "${domLabel}" from betType "${config.betType}")` };
 
-      // 5. CLICK AND VERIFY
-      targetBetArea.click();
+      // 5. EXECUTE BETS
+      for (let clickCmd of config.clicksSequence) {
+        const chipEl = chips[clickCmd.chipIndex];
+        if (!chipEl) {
+          return { success: false, reason: `Chip index ${clickCmd.chipIndex} out of bounds` };
+        }
+        // Select this chip
+        chipEl.click();
+        await new Promise(resolve => setTimeout(resolve, config.clickDelayMs));
 
+        // Click target area 'times' times
+        const placementDelay = config.betPlacementDelayMs || 150;
+        for (let t = 0; t < clickCmd.times; t++) {
+          targetBetArea.click();
+          await new Promise(resolve => setTimeout(resolve, placementDelay)); 
+        }
+      }
+
+      // 6. VERIFY
       let betConfirmed = false;
-      for (let i = 0; i < 10; i++) {
+      let betAmount = null;
+      for (let i = 0; i < 20; i++) {
         await new Promise((resolve) => setTimeout(resolve, 100));
-        if (targetBetArea.querySelector(".bettingChip.placed")) {
+        const chip = targetBetArea.querySelector(".bettingChip.placed");
+        if (chip) {
           betConfirmed = true;
+          // Extract the text inside the chip which represents the bet amount
+          betAmount = chip.textContent.trim();
           break;
         }
       }
@@ -81,7 +98,7 @@ async function executeBetInBrowser(page, betConfig) {
         return { success: false, reason: "Betting chip not placed visually" };
       }
 
-      return { success: true };
+      return { success: true, betAmount: betAmount };
     }, betConfig);
   } catch (err) {
     console.error(`[Bet Module] Puppeteer evaluate error:`, err.message);

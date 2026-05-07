@@ -111,13 +111,20 @@ function sendSignals(events) {
         mathematics: {} // Not needed for outcome
       };
 
-      console.log(`\n\x1b[36m[DEBUG OUTCOME PAYLOAD]\x1b[0m\n${JSON.stringify(outcomePayload, null, 2)}`);
       
+      const lastBetId = ts.currentBetId;
       fetch("http://localhost:3456/api/telemetry/eyes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(outcomePayload)
-      }).catch(() => {});
+      })
+      .then(res => res.json())
+      .then(data => {
+        console.log(`  \x1b[36m[ROUND RESULTS] Sent to Central: ${data.action} (BetId: ${lastBetId})\x1b[0m`);
+      })
+      .catch(err => {
+        console.log(`  \x1b[31m[ROUND RESULTS] Failed to send to Central: ${err.message}\x1b[0m`);
+      });
 
       // Clear the previous bet ID
       ts.currentBetId = null;
@@ -150,8 +157,6 @@ function sendSignals(events) {
         }
       }
     };
-
-    console.log(`\n\x1b[36m[DEBUG BET SIGNAL PAYLOAD]\x1b[0m\n${JSON.stringify(betPayload, null, 2)}`);
 
     fetch("http://localhost:3456/api/telemetry/eyes", {
       method: "POST",

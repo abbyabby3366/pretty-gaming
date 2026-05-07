@@ -4,5 +4,6 @@
   "rounding": 10,
   "maxBet": 500,
   "method": "flat",
-  "flatRatio": 0.01
+  "flatRatio": 0.01,
+  "autoBetEnabled": false
 }

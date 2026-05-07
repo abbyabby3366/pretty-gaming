@@ -156,7 +156,7 @@
             <div style="color:var(--text);margin-bottom:4px;">Node: <span style="color:var(--cyan)">${b.targetModule}</span></div>
             <div style="color:var(--dim);display:flex;gap:12px;margin-bottom:4px;">
               <span>Rec: <strong>${b.recommendedBetAmount}</strong></span>
-              <span>Act: <strong>${b.actualBetAmount}</strong></span>
+              <span>Act: <strong>${b.actualBetAmount === '-' || b.actualBetAmount == null ? 'null' : b.actualBetAmount}</strong></span>
             </div>
             <div class="${statusCls}" style="font-weight:600;">Status: ${b.outcome}</div>
           </td>
@@ -249,19 +249,14 @@
 
     async function poll(){
       try{
-        const [rTables, rBets] = await Promise.all([
-          fetch('/tables_state.json?'+Date.now()),
-          fetch('/api/bets?'+Date.now())
-        ]);
+        const rBets = await fetch('/api/bets?'+Date.now());
         
-        if(!rTables.ok || !rBets.ok) return;
-        const d = await rTables.json();
+        if(!rBets.ok) return;
         const betsData = await rBets.json();
         
-        let tsText = d.timestamp || '—';
-        if (d.timestamp && d.timestamp.includes('T')) {
-           const parts = d.timestamp.split('T');
-           const dObj = new Date(parts[0] + 'T' + parts[1].replace(/-/g, ':') + 'Z');
+        let tsText = '—';
+        if (betsData.lastUpdated) {
+           const dObj = new Date(betsData.lastUpdated);
            if (!isNaN(dObj)) tsText = dObj.toLocaleString('sv-SE', { timeZone: 'Asia/Singapore' });
         }
         
@@ -284,15 +279,21 @@
                  const isReady = a.isAcceptingBets;
                  const readyColor = isReady ? 'var(--green)' : 'var(--yellow)';
                  const readyText = isReady ? 'READY' : (isOnline ? 'LAUNCHING' : 'OFFLINE');
-                 acctHtml += `<div class="acct-row"><span style="color:var(--text)">${a.label}</span><span style="color:${readyColor};font-weight:600;">${readyText}</span></div>`;
+                 acctHtml += `<div class="acct-row" style="justify-content:flex-end;"><span style="color:${readyColor};font-weight:600;">${readyText}</span></div>`;
               }
             } else {
               acctHtml = `<div class="acct-row" style="color:var(--dim)">No accounts configured</div>`;
             }
+            
+            let headerLabel = m.label;
+            if (m.accounts && m.accounts.length > 0) {
+              headerLabel = m.accounts[0].label;
+            }
+
             modHtml += `
               <div class="module-card">
                 <div class="m-title">
-                  <span>${m.label}</span>
+                  <span>${headerLabel}</span>
                   <span class="status-dot ${dotClass}" title="Last seen ${Math.round((now - m.lastHeartbeat)/1000)}s ago"></span>
                 </div>
                 <div class="m-url">${m.baseUrl}</div>

@@ -1,6 +1,7 @@
 const http = require("http");
 const crypto = require("crypto");
 const path = require("path");
+require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
 const { cleanUpDOM } = require("../utils/cleanUpDOM");
 const { executeBetInBrowser } = require("./executeBet");
@@ -68,22 +69,58 @@ async function runBetPG() {
         reason = "Browser not ready for bet";
         console.error(`[Bet Module] ${reason}.`);
       } else {
+        // Calculate clicks sequence
+        const { buildAccountConfig } = require("../utils/launch_pg");
+        const acctConfig = buildAccountConfig(0, path.resolve(__dirname, "json", "bet_accounts.json"));
+        const chipValues = acctConfig.chipValues || ["ALL_IN", 10, 50, 100, 500, 1000];
+        const targetAmount = bet.recommendedBetAmount || bet.amount || bet.chipIndex || 0;
+        
+        let clicksSequence = [];
+        if ((targetAmount === "ALL_IN" || targetAmount === "all in") && chipValues.map(v => String(v).toUpperCase()).includes("ALL_IN")) {
+          const idx = chipValues.findIndex(v => String(v).toUpperCase() === "ALL_IN");
+          clicksSequence.push({ chipIndex: idx, times: 1 });
+        } else {
+          let amount = parseInt(targetAmount, 10);
+          if (!isNaN(amount) && amount > 0) {
+            let availableChips = chipValues
+              .map((val, index) => ({ val: parseInt(val, 10), index }))
+              .filter(c => !isNaN(c.val))
+              .sort((a, b) => b.val - a.val);
+
+            for (let chip of availableChips) {
+              if (amount >= chip.val) {
+                let times = Math.floor(amount / chip.val);
+                clicksSequence.push({ chipIndex: chip.index, times });
+                amount -= times * chip.val;
+              }
+            }
+          } else {
+             // Fallback
+             clicksSequence.push({ chipIndex: bet.chipIndex || 0, times: 1 });
+          }
+        }
+
         const betConfig = {
           tableName: bet.tableName,
           betType: bet.target || bet.betType,
-          chipIndex: bet.chipIndex || 0, // default to 0 if not provided
+          clicksSequence: clicksSequence,
           clickDelayMs: 200,
+          betPlacementDelayMs: parseInt(process.env.BET_PLACEMENT_DELAY_MS || "150", 10),
           chipSelector: ".chip",
         };
 
         const result = await executeBetInBrowser(browserPage, betConfig);
         success = result.success;
         reason = result.reason;
+        if (result.betAmount) {
+          bet.actualBetAmount = result.betAmount;
+        }
       }
       
       const status = success ? "SUCCESS" : "FAILED";
+      const amountText = success && bet.actualBetAmount ? ` [Amount: ${bet.actualBetAmount}]` : "";
       const reasonText = success ? "" : ` (Reason: ${reason || "None given"})`;
-      console.log(`[${currentAccountLabel}] ${success ? '✅' : '❌'} Result: ${status}${reasonText}`);
+      console.log(`[${currentAccountLabel}] ${success ? '✅' : '❌'} Result: ${status}${amountText}${reasonText}`);
 
       // Report result to central server
       fetch(`${CENTRAL_URL}/api/telemetry/bet-result`, {
@@ -93,6 +130,7 @@ async function runBetPG() {
           betId: bet.uuid || bet.id,
           status: status,
           reason: reason,
+          betAmount: bet.actualBetAmount,
           tableNumber: bet.tableName,
           betType: bet.target || bet.betType
         })
@@ -106,7 +144,7 @@ async function runBetPG() {
 }
 
 const server = http.createServer(async (req, res) => {
-  if (req.method === "POST" && req.url === "/neuronbaccarat/bet") {
+  if (req.method === "POST" && req.url === "/prettygaming/bet") {
     try {
       const payload = await parseJSONBody(req);
       if (!isBrowserReady) {
