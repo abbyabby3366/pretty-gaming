@@ -23,6 +23,7 @@
   let styles = ["color: #4CAF50; font-weight: bold; font-size: 14px;"];
   let baccaratCounter = 1;
   let tablesProcessed = 0;
+  const tableData = []; // Structured data for programmatic processing
 
   Array.from(lobbyContent.children).forEach((block) => {
     const headingEl = block.querySelector(".font24-20");
@@ -271,6 +272,19 @@
         }
         styles.push("color: #a0a0a0;");
 
+        // Push structured data for programmatic consumption
+        tableData.push({
+          tableIndex: tablesProcessed + 1,
+          tableName: tableName,
+          state: state,
+          timer: timerValue,
+          round: parseInt(roundNumber, 10) || 0,
+          wins: { P: parseInt(pWins, 10) || 0, B: parseInt(bWins, 10) || 0, T: parseInt(tWins, 10) || 0 },
+          playerCards: playerCards.slice(),
+          bankerCards: bankerCards.slice(),
+          allCards: cards.slice(),
+        });
+
         tablesProcessed++;
       });
     }
@@ -282,7 +296,7 @@
     "color: #ff9800; font-style: italic;",
   );
 
-  // Return clean string for Node backend
+  // Return structured JSON for Node backend
   const cleanOutput = outputTxt.replace(/%c/g, "") + `\n[Parser Complete] Extracted exactly ${tablesProcessed} Active Baccarat Tables\n`;
-  return cleanOutput;
+  return JSON.stringify({ text: cleanOutput, tables: tableData });
 })();

@@ -48,32 +48,6 @@ const MAX_BET_RATIO: f64 = 0.05; // max bet cap relative to bankroll
 
 // ─── Card & Shoe ──────────────────────────────────────────────────────────────
 
-/// Returns the display name of a card rank (internal 0–12).
-/// Rank encoding: 0=A, 1=2, 2=3, ..., 8=9, 9=T, 10=J, 11=Q, 12=K
-#[allow(dead_code)]
-fn rank_name(rank: u8) -> &'static str {
-    match rank {
-        0  => "A",
-        1  => "2",
-        2  => "3",
-        3  => "4",
-        4  => "5",
-        5  => "6",
-        6  => "7",
-        7  => "8",
-        8  => "9",
-        9  => "T",
-        10 => "J",
-        11 => "Q",
-        12 => "K",
-        _  => "?",
-    }
-}
-
-fn card_value(rank: u8) -> u8 {
-    baccarat::card_value(rank)
-}
-
 /// Build a fresh 8-deck shoe (416 cards).
 /// Each card is represented as its rank (0–12).
 fn build_shoe() -> Vec<u8> {
@@ -127,18 +101,8 @@ fn shuffle(shoe: &mut Vec<u8>, rng: &mut Lcg) {
 
 /// Baccarat hand total (always mod 10).
 fn hand_total(cards: &[u8]) -> u8 {
-    let sum: u8 = cards.iter().map(|&r| card_value(r)).sum();
+    let sum: u8 = cards.iter().map(|&r| baccarat::card_value(r)).sum();
     sum % 10
-}
-
-// ─── Third-card rules ─────────────────────────────────────────────────────────
-
-fn player_draws(total: u8) -> bool {
-    baccarat::player_draws(total)
-}
-
-fn banker_draws(banker_total: u8, player_third_card: Option<u8>) -> bool {
-    baccarat::banker_draws(banker_total, player_third_card)
 }
 
 // ─── Round result ─────────────────────────────────────────────────────────────
@@ -173,16 +137,16 @@ fn play_round(shoe: &mut Vec<u8>, cursor: &mut usize) -> Outcome {
     }
 
     // ── Player third card ──
-    let player_third: Option<u8> = if player_draws(p_total) {
+    let player_third: Option<u8> = if baccarat::player_draws(p_total) {
         let card = deal(shoe, cursor);
         player.push(card);
-        Some(card_value(card))
+        Some(baccarat::card_value(card))
     } else {
         None
     };
 
     // ── Banker third card ──
-    if banker_draws(b_total, player_third) {
+    if baccarat::banker_draws(b_total, player_third) {
         let card = deal(shoe, cursor);
         banker.push(card);
     }
@@ -207,7 +171,7 @@ fn compute_hand_probs(shoe: &[u8], cursor: usize) -> (f64, f64, f64) {
         c[baccarat::card_value(rank) as usize] += 1;
     }
 
-    let probs = baccarat::compute_probs_from_counts(&c, None);
+    let probs = baccarat::compute_probs_from_counts(&c);
     (probs.p_player, probs.p_banker, probs.p_tie)
 }
 

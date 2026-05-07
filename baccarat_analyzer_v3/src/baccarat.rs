@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use serde::Serialize;
 
+#[allow(dead_code)]
 pub fn card_value(rank: u8) -> u8 {
     match rank {
         0 => 1,
@@ -47,7 +48,7 @@ fn accumulate_detailed(
     }
 }
 
-pub fn compute_probs_from_counts(c: &[i32; 10], counts_0_split: Option<&[i32; 4]>) -> HandProbs {
+pub fn compute_probs_from_counts(c: &[i32; 10]) -> HandProbs {
     let n: i32 = c.iter().sum();
     let mut probs = HandProbs::default();
 

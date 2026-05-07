@@ -3,29 +3,27 @@ const path = require("path");
 const { cleanUpDOM } = require("../utils/cleanUpDOM");
 const { ensureMultiplayActive } = require("../utils/ensureMultiplayActive");
 
-function scrapePG(page, extractorCode) {
-  setInterval(async () => {
-    try {
-      const startTime = Date.now();
-      if (String(process.env.ENABLE_DOM_CLEANUP).toLowerCase() !== "false") {
-        await cleanUpDOM(page);
-      }
-      await ensureMultiplayActive(page);
-      const extractedText = await page.evaluate(extractorCode);
-      if (extractedText) {
-        const timestamp = new Date()
-          .toISOString()
-          .replace(/:/g, "-")
-          .split(".")[0];
-        const logEntry = `\n\n--- [${timestamp}] ---\n${extractedText}`;
-        fs.writeFileSync(path.join(__dirname, "..", "scrape_log.txt"), logEntry);
-        const duration = Date.now() - startTime;
-        console.log(`Scraped and saved at ${timestamp} (took ${duration}ms)`);
-      }
-    } catch (err) {
-      console.error("Error during extraction:", err.message);
-    }
-  }, process.env.SCRAPE_INTERVAL ? parseInt(process.env.SCRAPE_INTERVAL) : 500);
+/**
+ * Pure scrape function. Extracts structured table data from the page.
+ * @param {import('puppeteer').Page} page
+ * @param {string} extractorCode - The dom_extractor.js source to evaluate
+ * @returns {Promise<{text: string, tables: Array} | null>}
+ */
+async function scrapePG(page, extractorCode) {
+  if (String(process.env.ENABLE_DOM_CLEANUP).toLowerCase() !== "false") {
+    await cleanUpDOM(page);
+  }
+  await ensureMultiplayActive(page);
+
+  const rawResult = await page.evaluate(extractorCode);
+  if (!rawResult) return null;
+
+  try {
+    return JSON.parse(rawResult);
+  } catch {
+    // Fallback: old-style plain text (shouldn't happen)
+    return { text: rawResult, tables: [] };
+  }
 }
 
 module.exports = { scrapePG };

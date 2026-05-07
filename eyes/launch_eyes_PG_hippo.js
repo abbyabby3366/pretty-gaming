@@ -3,7 +3,8 @@ const fs = require("fs");
 const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, '..', '.env') });
 const { getBrowserArgs } = require("../utils/browserArgs");
-const { scrapePG } = require("./scrapePG");
+const { runEyesPG, stateManager } = require("./runPG");
+const { startDashboard } = require("./dashboard/server");
 
 (async () => {
   const browser = await puppeteer.launch({
@@ -49,5 +50,6 @@ const { scrapePG } = require("./scrapePG");
   const extractorCode = fs.readFileSync(extractorPath, "utf8");
 
 
-  scrapePG(page, extractorCode);
+  startDashboard(stateManager);
+  runEyesPG(page, extractorCode);
 })();

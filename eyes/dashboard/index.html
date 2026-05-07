@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PG Eyes Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:#0b0e14; --card:#12161f; --border:#1a1f2e;
+      --text:#c9d1d9; --dim:#5a6370;
+      --blue:#58a6ff; --green:#3fb950; --red:#f85149;
+      --yellow:#d29922; --cyan:#39c5cf; --purple:#a371f7; --orange:#f97316;
+    }
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{font-family:'JetBrains Mono',monospace;background:var(--bg);color:var(--text);font-size:10px;display:flex;flex-direction:column;height:100vh;overflow:hidden;}
+
+    .bar{background:#0d1117;border-bottom:1px solid var(--border);padding:3px 8px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;}
+    .bar .title{font-size:11px;font-weight:600;color:var(--cyan);}
+    .bar .meta{color:var(--dim);font-size:10px;display:flex;gap:12px;}
+    .bar .live{color:var(--green);}
+
+    .main{display:flex;flex:1;overflow:hidden;}
+
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:2px;padding:3px;flex:1;overflow-y:auto;align-content:start;}
+
+    .log-panel{width:280px;border-left:1px solid var(--border);background:#0d1117;overflow-y:auto;flex-shrink:0;display:flex;flex-direction:column;}
+    .log-title{padding:4px 6px;font-size:10px;font-weight:600;color:var(--yellow);border-bottom:1px solid var(--border);flex-shrink:0;}
+    .log-list{flex:1;overflow-y:auto;padding:2px;}
+    .log-item{padding:3px 5px;border-bottom:1px solid rgba(255,255,255,.03);font-size:9px;line-height:1.4;}
+    .log-item .lt{color:var(--dim);}
+    .log-item .ln{color:var(--cyan);font-weight:500;}
+    .log-item .lw-P{color:var(--blue);}
+    .log-item .lw-B{color:var(--red);}
+    .log-item .lw-T{color:var(--green);}
+    .log-item .le{margin-top:1px;}
+    .log-item .le .pos{color:var(--green);}
+    .log-item .le .neg{color:var(--red);}
+    .log-item .edge-alert{color:var(--yellow);font-weight:600;}
+
+    .tc{background:var(--card);border:1px solid var(--border);border-radius:3px;padding:3px 5px;cursor:default;transition:border-color .15s;}
+    .tc:hover{border-color:#2a3040;}
+    .tc.edge{border-color:var(--yellow);}
+
+    .tc .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:1px;}
+    .tc .name{font-weight:600;font-size:10px;color:var(--cyan);}
+    .tc .st{font-size:7px;padding:1px 3px;border-radius:2px;font-weight:500;text-transform:uppercase;}
+    .st-w{background:rgba(88,166,255,.12);color:var(--blue);}
+    .st-d{background:rgba(210,153,34,.12);color:var(--yellow);}
+    .st-r{background:rgba(63,185,80,.12);color:var(--green);}
+
+    .tc .info{display:flex;gap:5px;color:var(--dim);font-size:9px;margin-bottom:1px;}
+    .tc .wins{font-size:9px;margin-bottom:1px;}
+    .tc .p{color:var(--blue);}
+    .tc .b{color:var(--red);}
+    .tc .t{color:var(--green);}
+
+    .tc .dk{display:flex;gap:1px;margin-bottom:1px;}
+    .tc .dk .s{flex:1;text-align:center;}
+    .tc .dk .s .r{font-size:7px;color:var(--dim);line-height:1;}
+    .tc .dk .s .c{font-size:9px;line-height:1.2;}
+    .tc .dk .s .c.lo{color:var(--orange);}
+    .tc .dk .s .c.out{color:var(--red);}
+
+    .tc .ev{font-size:9px;display:flex;gap:5px;}
+    .tc .ev .pos{color:var(--green);}
+    .tc .ev .neg{color:var(--red);}
+    .tc .ev .dim{color:var(--dim);}
+
+    .tc .alert{margin-top:1px;padding:1px 3px;font-size:8px;font-weight:600;background:rgba(210,153,34,.1);border:1px solid rgba(210,153,34,.2);border-radius:2px;color:var(--yellow);}
+
+    .tc .cards{font-size:8px;color:var(--dim);margin-bottom:1px;}
+    .pbar{height:2px;background:rgba(255,255,255,.04);border-radius:1px;margin-bottom:1px;overflow:hidden;}
+    .pbar .f{height:100%;border-radius:1px;}
+    .rst{background:none;border:1px solid var(--border);color:var(--dim);font-size:8px;padding:1px 3px;border-radius:2px;cursor:pointer;font-family:inherit;margin-left:3px;}
+    .rst:hover{border-color:var(--red);color:var(--red);}
+    .tog{background:none;border:1px solid var(--border);color:var(--dim);font-size:9px;padding:1px 5px;border-radius:2px;cursor:pointer;font-family:inherit;}
+    .tog:hover{border-color:var(--cyan);color:var(--cyan);}
+    .tog.on{border-color:var(--cyan);color:var(--cyan);}
+    body.hide-deck .dk{display:none!important;}
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <span class="title">PG Eyes</span>
+    <div class="meta">
+      <button class="tog" id="deckToggle" onclick="toggleDeck()">Deck</button>
+      <button class="tog" id="edgeToggle" onclick="toggleEdge()">Edge Only</button>
+      <span class="live">● LIVE</span>
+      <span id="ts">—</span>
+      <span id="tc">0</span>
+    </div>
+  </div>
+  <div class="main">
+    <div class="grid" id="g"></div>
+    <div class="log-panel">
+      <div class="log-title">Event Log (last 100)</div>
+      <div class="log-list" id="log"></div>
+    </div>
+  </div>
+
+  <script>
+    const R=['A','2','3','4','5','6','7','8','9','T','J','Q','K'];
+    let MIN_EV=0.0015; // updated from server config each tick
+    let showDeck=false;
+    let edgeOnly=false;
+    document.body.classList.add('hide-deck');
+    function toggleDeck(){
+      showDeck=!showDeck;
+      document.body.classList.toggle('hide-deck',!showDeck);
+      document.getElementById('deckToggle').classList.toggle('on',showDeck);
+    }
+    function toggleEdge(){
+      edgeOnly=!edgeOnly;
+      document.getElementById('edgeToggle').classList.toggle('on',edgeOnly);
+      poll();
+    }
+    function hasEdge(t){
+      if(!t.ev)return false;
+      return t.ev.player.ev>=MIN_EV||t.ev.banker.ev>=MIN_EV;
+    }
+
+    function stCls(s){
+      if(!s)return'st-w';
+      if(s.startsWith('Result'))return'st-r';
+      if(s==='Dealing'||s==='Dealing / No More Bets')return'st-d';
+      return'st-w';
+    }
+
+    function ev(v){
+      if(v==null)return'—';
+      const p=(v*100).toFixed(3);
+      return v>=0?'+'+p+'%':p+'%';
+    }
+    function evCls(v){return v>=MIN_EV?'pos':'dim';}
+
+    function render(t){
+      const e=t.ev&&t.ev.best;
+      const pct=Math.min(100,(t.deckRemaining/416)*100);
+      const col=pct>60?'var(--green)':pct>30?'var(--yellow)':'var(--red)';
+      const comp=t.deckComposition||[];
+
+      let dk='';
+      if(comp.length===13){
+        dk='<div class="dk">'+R.map((r,i)=>{
+          const c=comp[i];
+          const cls=c<=8?'out':c<=16?'lo':'';
+          return`<div class="s"><div class="r">${r}</div><div class="c ${cls}">${c}</div></div>`;
+        }).join('')+'</div>';
+      }
+
+      let evH='';
+      if(t.ev){
+        const pa=t.ev.player.ev,ba=t.ev.banker.ev;
+        evH=`<div class="ev"><span class="dim">EV</span>
+          <span>P:<span class="${evCls(pa)}">${ev(pa)}</span></span>
+          <span>B:<span class="${evCls(ba)}">${ev(ba)}</span></span>
+          <span class="dim">T:${(t.ev.tie.prob*100).toFixed(1)}%</span>
+        </div>`;
+        if(e)evH+=`<div class="alert">🤑 ${e.target} ${ev(e.ev)}</div>`;
+      }
+
+      const lc=(t.lastPlayerCards?.length||t.lastBankerCards?.length)
+        ?`<div class="cards">P[${(t.lastPlayerCards||[]).join(',')}] B[${(t.lastBankerCards||[]).join(',')}]</div>`:'';
+
+      return`<div class="tc${e?' edge':''}">
+        <div class="top"><span class="name">${t.tableName}</span><span class="st ${stCls(t.state)}">${t.state||'—'}</span></div>
+        <div class="pbar"><div class="f" style="width:${pct}%;background:${col}"></div></div>
+        <div class="info"><span style="color:var(--text)">R${t.round}</span><span style="color:var(--text)">H${t.handNumber}</span><span class="p">P${t.wins?.P??0}</span><span class="b">B${t.wins?.B??0}</span><span class="t">T${t.wins?.T??0}</span><span style="margin-left:auto">${t.deckRemaining}/416</span></div>
+        ${lc}${dk}${evH}
+      </div>`;
+    }
+
+    function renderLog(events){
+      if(!events||!events.length)return'<div class="log-item" style="color:var(--dim)">No events yet</div>';
+      return events.map(e=>{
+        const wCls=e.winner?`lw-${e.winner}`:'';
+        const wLabel=e.winner==='P'?'Player':e.winner==='B'?'Banker':e.winner==='T'?'Tie':'—';
+        const cards=e.playerCards?.length?`P[${e.playerCards.join(',')}] B[${e.bankerCards.join(',')}]`:'';
+
+        let evLine='';
+        if(e.ev){
+          const pe=e.ev.player,be=e.ev.banker;
+          evLine=`<div class="le">P:<span class="${pe>=0?'pos':'neg'}">${ev(pe)}</span> B:<span class="${be>=0?'pos':'neg'}">${ev(be)}</span></div>`;
+          if(e.ev.best)evLine+=`<div class="edge-alert">🤑 ${e.ev.best.target} ${ev(e.ev.best.ev)}</div>`;
+        }
+
+        return`<div class="log-item">
+          <span class="lt">${e.time?e.time.split('T')[1]?.replace('Z','')?.slice(0,12):''}</span> <span class="ln">${e.table}</span> R${e.round}
+          <span class="${wCls}">${wLabel}</span> ${cards} [${e.deckRemaining}]
+          ${evLine}
+        </div>`;
+      }).join('');
+    }
+
+    async function poll(){
+      try{
+        const r=await fetch('/tables_state.json?'+Date.now());
+        if(!r.ok)return;
+        const d=await r.json();
+        if(d.config)MIN_EV=d.config.minEvThreshold||0.0015;
+        document.getElementById('ts').textContent=d.timestamp||'—';
+        document.getElementById('tc').textContent=(d.totalTables||0)+' tables';
+        const g=document.getElementById('g');
+        if(d.tables&&d.tables.length){
+          const filtered=edgeOnly?d.tables.filter(hasEdge):d.tables;
+          g.innerHTML=filtered.length?filtered.map(render).join(''):'<div style="grid-column:1/-1;text-align:center;padding:20px;color:var(--dim)">No tables with edge</div>';
+        }
+        document.getElementById('log').innerHTML=renderLog(d.eventLog);
+      }catch(e){}
+    }
+    poll();setInterval(poll,1000);
+
+    async function resetTable(name){
+      if(!confirm(`Reset deck for ${name} to fresh shoe?`))return;
+      try{
+        const r=await fetch('/reset?table='+encodeURIComponent(name),{method:'POST'});
+        const d=await r.json();
+        if(d.ok)poll();
+      }catch(e){}
+    }
+  </script>
+</body>
+</html>

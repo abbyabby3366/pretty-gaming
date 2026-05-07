@@ -1,2 +1,10 @@
-[tasks]
-eyes = "node eyes/launch_eyes_PG_hippo.js"
+[tasks."build:rust"]
+description = "Compile Rust analyzer binary"
+run = "cargo build --release --manifest-path baccarat_analyzer_v3\\Cargo.toml --bin analyzer_bin"
+sources = ["baccarat_analyzer_v3/src/**/*.rs", "baccarat_analyzer_v3/Cargo.toml"]
+outputs = ["baccarat_analyzer_v3/target/release/analyzer_bin.exe"]
+
+[tasks.eyes]
+description = "Build analyzer → Run Eyes + Dashboard"
+depends = ["build:rust"]
+run = "node eyes/launch_eyes_PG_hippo.js"
