@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { scrapePG } = require("./scrapePG");
 const { TableStateManager } = require("./tableStateManager");
 const { calculateEV } = require("./evCalculator");
@@ -98,19 +99,57 @@ function sendSignals(events) {
     const ts = event.tableState;
     if (!ts.lastEvResult || !ts.lastEvResult.best) continue;
 
-    const signal = {
-      tableName: event.tableName,
-      round: event.round,
-      target: ts.lastEvResult.best.target,
-      ev: ts.lastEvResult.best.ev,
-      prob: ts.lastEvResult.best.prob,
-      deckRemaining: ts.remaining,
+    // Generate a new UUID if this is the start of a betting phase
+    if (event.type === "STATE_CHANGE") {
+      ts.currentBetId = crypto.randomUUID();
+    }
+    
+    // Skip sending outcome if we never sent a bet for this hand
+    if (!ts.currentBetId) continue;
+
+    const payload = {
+      uuid: ts.currentBetId,
+      instanceID: "PG_Eyes",
+      tableNumber: event.tableName,
+      status: { 
+        setup: "READY", 
+        autoBet: true, 
+        gameState: event.type === "HAND_COMPLETE" ? "ROUND_COMPLETE" : "WAITING_FOR_BETS" 
+      },
+      ocr: { 
+        roundNumber: String(event.round),
+        ...(event.type === "HAND_COMPLETE" ? { winner: event.winner } : {})
+      },
+      metrics: { deckRemaining: ts.remaining },
+      mathematics: {
+        deckComposition: ts.deckComposition,
+        evSnapshot: {
+          "PlayerBet": { ev: ts.lastEvResult.ev_player, prob: ts.lastEvResult.p_player },
+          "BankerBet": { ev: ts.lastEvResult.ev_banker, prob: ts.lastEvResult.p_banker },
+          "TieBet": { ev: ts.lastEvResult.ev_tie, prob: ts.lastEvResult.p_tie }
+        }
+      }
     };
 
-    // TODO: POST to bet module / central server
-    console.log(
-      `  \x1b[35m[SIGNAL] Would POST: ${JSON.stringify(signal)}\x1b[0m`
-    );
+    console.log(`\n\x1b[36m[DEBUG SIGNAL PAYLOAD]\x1b[0m\n${JSON.stringify(payload, null, 2)}`);
+
+    fetch("http://localhost:3456/api/telemetry/eyes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    })
+    .then(res => res.json())
+    .then(data => {
+      console.log(`  \x1b[35m[SIGNAL] Sent to Central: ${data.action} (BetId: ${data.betId || ts.currentBetId})\x1b[0m`);
+    })
+    .catch(err => {
+      console.log(`  \x1b[31m[SIGNAL] Failed to send to Central: ${err.message}\x1b[0m`);
+    });
+    
+    // Clear the bet ID after sending the hand outcome
+    if (event.type === "HAND_COMPLETE") {
+      ts.currentBetId = null;
+    }
   }
 }
 
@@ -200,14 +239,19 @@ function writeStateJson(tables, timestamp, events) {
 
 // ─── Main Orchestrator ───────────────────────────────────────────────────
 
-function runEyesPG(page, extractorCode) {
-  setInterval(async () => {
+async function runEyesPG(page, extractorCode) {
+  let consecutiveErrors = 0;
+  
+  while (!page.isClosed()) {
     try {
       const startTime = Date.now();
 
       // Step 1: Scrape
       const data = await scrapePG(page, extractorCode);
-      if (!data) return;
+      if (!data) {
+        await new Promise(r => setTimeout(r, 1000));
+        continue;
+      }
 
       const { text, tables } = data;
 
@@ -264,12 +308,36 @@ function runEyesPG(page, extractorCode) {
       // Persist state to disk
       saveState();
 
-      // duration tracking (silent)
-      // const duration = Date.now() - startTime;
+      // Reset consecutive errors on successful cycle
+      consecutiveErrors = 0;
+
+      // duration tracking
+      const interval = process.env.SCRAPE_INTERVAL ? parseInt(process.env.SCRAPE_INTERVAL) : 500;
+      const elapsed = Date.now() - startTime;
+      if (elapsed < interval) {
+        await new Promise(r => setTimeout(r, interval - elapsed));
+      }
+
     } catch (err) {
       console.error("Error during runPG cycle:", err.message);
+      
+      // If the page is detached, closed, or context destroyed, initiate recovery
+      if (err.message.includes("detached Frame") || 
+          err.message.includes("Execution context was destroyed") || 
+          err.message.includes("Target closed")) {
+          consecutiveErrors++;
+          if (consecutiveErrors >= 3) {
+             console.log("\x1b[31m[RECOVERY] Too many critical page errors. Requesting relaunch...\x1b[0m");
+             return false;
+          }
+      }
+      
+      await new Promise(r => setTimeout(r, 2000));
     }
-  }, process.env.SCRAPE_INTERVAL ? parseInt(process.env.SCRAPE_INTERVAL) : 500);
+  }
+  
+  console.log("\x1b[31m[RECOVERY] Page was closed manually or crashed. Requesting relaunch...\x1b[0m");
+  return false;
 }
 
 module.exports = { runEyesPG, stateManager };

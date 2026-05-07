@@ -8,3 +8,7 @@ outputs = ["baccarat_analyzer_v3/target/release/analyzer_bin.exe"]
 description = "Build analyzer → Run Eyes + Dashboard"
 depends = ["build:rust"]
 run = "node eyes/launch_eyes_PG_hippo.js"
+
+[tasks.bet]
+description = "Run the simulated Bet Module"
+run = "node bet_module/server.js"

@@ -3,53 +3,36 @@ const fs = require("fs");
 const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, '..', '.env') });
 const { getBrowserArgs } = require("../utils/browserArgs");
-const { runEyesPG, stateManager } = require("./runPG");
-const { startDashboard } = require("./dashboard/server");
+const { runEyesPG, stateManager } = require("./runEyesPG");
+const { startDashboard } = require("../dashboard/server");
+const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
 
 (async () => {
-  const browser = await puppeteer.launch({
-    headless: false,
-    defaultViewport: null,
-    protocolTimeout: 30000,
-    args: getBrowserArgs(),
-  });
-  const page = await browser.newPage();
-
-  // ==========================================
-  // NAVIGATE TO YOUR LOBBY
-  // ==========================================
-  await page.goto("https://hippo168.com/lobby/multiplay", {
-    waitUntil: "networkidle2",
-  });
-
-  // Handle the "Welcome to Pretty Gaming" Confirm modal
-  try {
-    console.log("Waiting for 'Confirm' button...");
-    await page.waitForFunction(
-      () => {
-        const btns = Array.from(document.querySelectorAll(".clickActive"));
-        const confirmBtn = btns.find(
-          (el) => el.innerText && el.innerText.includes("Confirm"),
-        );
-        if (confirmBtn) {
-          confirmBtn.click();
-          return true;
-        }
-        return false;
-      },
-      { timeout: 15000 },
-    );
-    console.log("Clicked 'Confirm' on Welcome modal.");
-  } catch (err) {
-    console.log("No 'Confirm' modal found or timed out.");
-  }
-
-  console.log("Page loaded. Starting the extractor every second...");
-
+  const accountsPath = path.resolve(__dirname, "json", "eyes_accounts.json");
   const extractorPath = path.join(__dirname, "dom_extractor.js");
   const extractorCode = fs.readFileSync(extractorPath, "utf8");
 
-
   startDashboard(stateManager);
-  runEyesPG(page, extractorCode);
+
+  while (true) {
+    let browserContext = null;
+    try {
+      const acctConfig = buildAccountConfig(0, accountsPath);
+      const { browser, page } = await launchAccount(acctConfig);
+      browserContext = browser;
+
+      console.log("Page loaded. Starting the extractor loop...");
+
+      await runEyesPG(page, extractorCode);
+      
+      console.log("\x1b[31m[RECOVERY] Extractor loop exited. Disconnecting and relaunching...\x1b[0m");
+      if (browserContext) await browserContext.disconnect().catch(() => {});
+      
+      await new Promise(r => setTimeout(r, 2000));
+    } catch (err) {
+      console.error("\x1b[31m[RECOVERY] Launch/Recovery error:\x1b[0m", err.message);
+      if (browserContext) await browserContext.disconnect().catch(() => {});
+      await new Promise(r => setTimeout(r, 5000));
+    }
+  }
 })();

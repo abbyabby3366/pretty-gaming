@@ -1,0 +1,14 @@
+[
+  {
+    "label": "PG Eyes Winbox",
+    "platform": "winbox",
+    "launchMethod": "connect",
+    "profileIndex": 2,
+    "debuggingPort": 9223,
+    "run": true,
+    "credentials": {
+      "email": "abbyabby3366@gmail.com",
+      "password": "Aaaa8888"
+    }
+  }
+]

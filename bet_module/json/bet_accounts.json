@@ -1,0 +1,26 @@
+[
+  {
+    "label": "PG Eyes Hippo",
+    "platform": "hippo",
+    "launchMethod": "puppeteer",
+    "profileIndex": 9,
+    "debuggingPort": 9222,
+    "run": true,
+    "credentials": {
+      "email": "",
+      "password": ""
+    }
+  },
+  {
+    "label": "PG Bet Winbox",
+    "platform": "winbox",
+    "launchMethod": "connect",
+    "profileIndex": 12,
+    "debuggingPort": 9223,
+    "run": true,
+    "credentials": {
+      "email": "abbyabby3366@gmail.com",
+      "password": "Aaaa8888"
+    }
+  }
+]
