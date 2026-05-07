@@ -1,0 +1,2 @@
+[tasks]
+eyes = "node eyes/launch_eyes_PG_hippo.js"
