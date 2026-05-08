@@ -250,6 +250,7 @@
            document.getElementById('cfg-flat').value = data.config.flatRatio || 0.01;
            document.getElementById('cfg-rounding').value = data.config.rounding;
            document.getElementById('cfg-maxbet').value = data.config.maxBet;
+           document.getElementById('cfg-min-balance').value = data.config.minAccountBalance || 1000;
            updateMethodVisibility();
            document.getElementById('settings-modal').style.display = 'flex';
         }
@@ -276,6 +277,12 @@
     }
 
     async function saveSettings() {
+      const pwd = prompt("Enter password to save settings:");
+      if (pwd !== "1234") {
+        alert("Incorrect password.");
+        return;
+      }
+
       const payload = {
          mode: document.getElementById('cfg-mode').value,
          method: document.getElementById('cfg-method').value,
@@ -283,7 +290,8 @@
          kellyFraction: parseFloat(document.getElementById('cfg-kelly').value) || 1.0,
          flatRatio: parseFloat(document.getElementById('cfg-flat').value) || 0.01,
          rounding: parseInt(document.getElementById('cfg-rounding').value) || 10,
-         maxBet: parseInt(document.getElementById('cfg-maxbet').value) || 500
+         maxBet: parseInt(document.getElementById('cfg-maxbet').value) || 500,
+         minAccountBalance: parseFloat(document.getElementById('cfg-min-balance').value) || 0
       };
       try {
         await fetch('/api/config', {
@@ -502,6 +510,10 @@
       <div class="form-group">
         <label>Max Bet Limit</label>
         <input type="number" id="cfg-maxbet" />
+      </div>
+      <div class="form-group" id="group-min-balance">
+        <label>Min Account Balance (Round Robin)</label>
+        <input type="number" id="cfg-min-balance" />
       </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeSettings()">Cancel</button>

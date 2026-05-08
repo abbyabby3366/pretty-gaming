@@ -16,7 +16,8 @@ let betConfig = {
   flatRatio: 0.01,
   rounding: 10,
   maxBet: 500,
-  autoBetEnabled: true
+  autoBetEnabled: true,
+  minAccountBalance: 1000
 };
 
 try {
@@ -45,7 +46,28 @@ let lastRoundRobinIndex = 0;
 function resolveBetModuleTarget() {
   const now = Date.now();
   // Filter modules that sent a heartbeat in the last 35 seconds
-  const online = Array.from(activeModules.values()).filter(m => now - m.lastHeartbeat < 35000);
+  let online = Array.from(activeModules.values()).filter(m => now - m.lastHeartbeat < 35000);
+  
+  if (betConfig.minAccountBalance != null && betConfig.minAccountBalance > 0) {
+    online = online.filter(m => {
+      if (m.accounts && m.accounts.length > 0) {
+        // If ANY account has balance < minAccountBalance, exclude this module
+        const hasLowBalance = m.accounts.some(acc => {
+          if (acc.balance != null) {
+            const cleanBalance = String(acc.balance).replace(/[^0-9.]/g, '');
+            const parsedBalance = parseFloat(cleanBalance);
+            if (!isNaN(parsedBalance)) {
+              return parsedBalance < betConfig.minAccountBalance;
+            }
+          }
+          return false;
+        });
+        return !hasLowBalance;
+      }
+      return true; // Keep modules with no reported account balances just in case
+    });
+  }
+
   if (online.length === 0) return null;
   
   if (betConfig.mode === 'round_robin' || !betConfig.mode) {
