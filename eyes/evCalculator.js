@@ -20,16 +20,20 @@ const ANALYZER_BIN = path.join(
   "analyzer_bin.exe"
 );
 
-// Default config — can be overridden via .env
-const REBATE_RATE = parseFloat(process.env.REBATE_RATE || "0.012");
-const MIN_EV_THRESHOLD = parseFloat(process.env.MIN_EV_THRESHOLD || "0.0003");
+// Remove default process.env readings at top level, or keep them as fallbacks
+const DEFAULT_REBATE_RATE = 0.012;
+const DEFAULT_MIN_EV_THRESHOLD = 0.0003;
 
 /**
  * Calculate EV for a given 13-slot deck composition.
  * @param {number[]} composition - 13-element array [A,2,3,...,K] remaining counts
+ * @param {object} config - { rebateRate, minEvThreshold }
  * @returns {object} EV results with probabilities and best bet recommendation
  */
-function calculateEV(composition) {
+function calculateEV(composition, config = {}) {
+  const REBATE_RATE = config.rebateRate !== undefined ? parseFloat(config.rebateRate) : DEFAULT_REBATE_RATE;
+  const MIN_EV_THRESHOLD = config.minEvThreshold !== undefined ? parseFloat(config.minEvThreshold) : DEFAULT_MIN_EV_THRESHOLD;
+
   if (!composition || composition.length !== 13) {
     throw new Error(`Expected 13-slot composition, got ${composition?.length}`);
   }

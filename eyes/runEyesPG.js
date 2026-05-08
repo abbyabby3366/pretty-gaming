@@ -79,12 +79,12 @@ function analyseState(tables) {
 
 // ─── Step 3: Calculate EV (only on relevant events) ──────────────────────
 
-function calculateEVForEvents(events) {
+function calculateEVForEvents(events, dynamicConfig = {}) {
   for (const event of events) {
     if (event.type !== "HAND_COMPLETE" && event.type !== "STATE_CHANGE") continue;
 
     const ts = event.tableState;
-    const evResult = calculateEV(event.deckComposition);
+    const evResult = calculateEV(event.deckComposition, dynamicConfig);
     if (evResult) {
       ts.lastEvResult = evResult;
     }
@@ -175,7 +175,7 @@ function sendSignals(events) {
 
 // ─── Write State JSON (after Step 2, before EV) ─────────────────────────
 
-function writeStateJson(tables, timestamp, events) {
+function writeStateJson(tables, timestamp, events, allScrapedTables = [], ignoredTables = [], dynamicConfig = {}) {
   const stateSnapshot = [];
   for (const table of tables) {
     const ts = stateManager.getTable(table.tableName);
@@ -244,9 +244,11 @@ function writeStateJson(tables, timestamp, events) {
         timestamp,
         totalTables: stateSnapshot.length,
         config: {
-          minEvThreshold: parseFloat(process.env.MIN_EV_THRESHOLD) || 0.0003,
-          rebateRate: parseFloat(process.env.REBATE_RATE) || 0.012,
+          minEvThreshold: dynamicConfig.minEvThreshold !== undefined ? parseFloat(dynamicConfig.minEvThreshold) : 0.0003,
+          rebateRate: dynamicConfig.rebateRate !== undefined ? parseFloat(dynamicConfig.rebateRate) : 0.012,
         },
+        allScrapedTables,
+        ignoredTables,
         eventsThisTick: eventsSummary,
         eventLog: eventLog,
         tables: stateSnapshot,
@@ -273,7 +275,7 @@ async function runEyesPG(page, extractorCode, acctConfig) {
         continue;
       }
 
-      const { text, tables } = data;
+      let { text, tables } = data;
 
       // Write human-readable text log
       const timestamp = new Date()
@@ -286,15 +288,31 @@ async function runEyesPG(page, extractorCode, acctConfig) {
       );
 
       if (tables && tables.length > 0) {
+        const allScrapedTables = tables.map(t => t.tableName);
+
+        // Read ignored tables config
+        let ignoredTables = [];
+        let dynamicConfig = {};
+        try {
+          const cfgPath = path.join(__dirname, "..", "dashboard", "config.json");
+          if (fs.existsSync(cfgPath)) {
+            const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
+            ignoredTables = cfg.ignoredTables || [];
+            dynamicConfig = cfg;
+          }
+        } catch(e){}
+
+        const filteredTables = tables.filter(t => !ignoredTables.includes(t.tableName));
+
         // Step 2: Analyse state transitions
-        const events = analyseState(tables);
+        const events = analyseState(filteredTables);
 
         // Write complete state JSON (right after analysis, before EV calc)
-        writeStateJson(tables, timestamp, events);
+        writeStateJson(filteredTables, timestamp, events, allScrapedTables, ignoredTables, dynamicConfig);
 
         if (events.length > 0) {
           // Step 3: Calculate EV for state-change events
-          calculateEVForEvents(events);
+          calculateEVForEvents(events, dynamicConfig);
 
           // Record events to in-memory log
           for (const e of events) {
@@ -321,7 +339,7 @@ async function runEyesPG(page, extractorCode, acctConfig) {
           sendSignals(events);
 
           // Re-write state JSON after EV calculation (now includes fresh EV results)
-          writeStateJson(tables, timestamp, events);
+          writeStateJson(filteredTables, timestamp, events, allScrapedTables, ignoredTables, dynamicConfig);
         }
       }
 

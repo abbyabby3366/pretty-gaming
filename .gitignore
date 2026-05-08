@@ -11,3 +11,4 @@ eyes_state.json
 # Environment (contains local config)
 .env
 
+dashboard/config.json

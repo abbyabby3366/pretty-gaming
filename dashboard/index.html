@@ -78,6 +78,19 @@
     .tog:hover{border-color:var(--cyan);color:var(--cyan);}
     .tog.on{border-color:var(--cyan);color:var(--cyan);}
     body.hide-deck .dk{display:none!important;}
+
+    /* Modal Styles */
+    .modal-overlay { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); align-items:center; justify-content:center; z-index:100; }
+    .modal { background:var(--card); border:1px solid var(--border); border-radius:5px; padding:15px; width:400px; max-width:90%; display:flex; flex-direction:column; max-height:80vh; }
+    .modal-title { font-size:14px; font-weight:600; color:var(--cyan); margin-bottom:10px; }
+    .modal-body { flex:1; overflow-y:auto; margin-bottom:10px; }
+    .modal-footer { display:flex; justify-content:flex-end; gap:10px; }
+    .btn { background:var(--bg); border:1px solid var(--border); color:var(--text); padding:5px 10px; border-radius:3px; cursor:pointer; font-family:inherit; }
+    .btn.primary { background:var(--cyan); color:#000; border-color:var(--cyan); font-weight:600; }
+    .btn:hover { opacity:0.8; }
+    .table-check-item { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.05); }
+    .table-check-item label { cursor:pointer; user-select:none; font-size:11px; flex:1; }
+    .table-check-item input[type="checkbox"] { cursor:pointer; width:14px; height:14px; }
   </style>
 </head>
 <body>
@@ -86,6 +99,8 @@
     <div class="meta">
       <a href="/bets" style="color:var(--cyan);text-decoration:none;border:1px solid var(--border);padding:1px 5px;border-radius:2px;font-size:9px;">Bets Log</a>
       <button class="rst" onclick="resetAllTables()">Reset All</button>
+      <button class="tog" onclick="openTablesConfig()">Tables Config</button>
+      <button class="tog" onclick="openEvConfig()">EV Config</button>
       <button class="tog" id="deckToggle" onclick="toggleDeck()">Deck</button>
       <button class="tog" id="edgeToggle" onclick="toggleEdge()">Edge Only</button>
       <span class="live">● LIVE</span>
@@ -98,6 +113,43 @@
     <div class="log-panel">
       <div class="log-title">Event Log (last 100)</div>
       <div class="log-list" id="log"></div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="tablesModal">
+    <div class="modal">
+      <div class="modal-title">Tables Detection Config</div>
+      <div style="margin-bottom:8px; font-size:10px; color:var(--dim);">Uncheck a table to stop detecting, displaying, and betting on it. Check "Select All" to re-enable all.</div>
+      <div class="table-check-item" style="border-bottom: 2px solid var(--border); margin-bottom: 5px;">
+        <input type="checkbox" id="chk_selectAll" onclick="toggleAllTables(this)">
+        <label for="chk_selectAll" style="font-weight: bold; color: var(--yellow);">Select All</label>
+      </div>
+      <div class="modal-body" id="tablesCheckList">
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeTablesConfig()">Cancel</button>
+        <button class="btn primary" onclick="saveTablesConfig()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="evModal">
+    <div class="modal" style="width: 300px;">
+      <div class="modal-title">EV Config</div>
+      <div class="modal-body" style="display:flex; flex-direction:column; gap:10px;">
+        <div>
+          <label style="font-size:10px; color:var(--dim); display:block; margin-bottom:4px;">Min EV Threshold</label>
+          <input type="number" id="inp_minEv" step="0.0001" style="width:100%; padding:5px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:3px;">
+        </div>
+        <div>
+          <label style="font-size:10px; color:var(--dim); display:block; margin-bottom:4px;">Rebate Rate</label>
+          <input type="number" id="inp_rebate" step="0.001" style="width:100%; padding:5px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:3px;">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeEvConfig()">Cancel</button>
+        <button class="btn primary" onclick="saveEvConfig()">Save</button>
+      </div>
     </div>
   </div>
 
@@ -227,6 +279,8 @@
     }, 1000);
 
     let lastTimestampStr = '';
+    let currentAllTables = [];
+    let currentIgnoredTables = [];
 
     async function poll(){
       try{
@@ -239,7 +293,13 @@
           lastPollSuccess = Date.now();
         }
 
-        if(d.config)MIN_EV=d.config.minEvThreshold||0.0015;
+        if (d.allScrapedTables) currentAllTables = d.allScrapedTables;
+        if (d.ignoredTables) currentIgnoredTables = d.ignoredTables;
+
+        if(d.config){
+          MIN_EV=d.config.minEvThreshold||0.0015;
+          window.currentConfig = d.config;
+        }
         let tsText = d.timestamp || '—';
         if (d.timestamp && d.timestamp.includes('T')) {
           const parts = d.timestamp.split('T');
@@ -275,6 +335,97 @@
         const d = await r.json();
         if (d.ok) poll();
       } catch (e) {}
+    }
+
+    function openTablesConfig() {
+      const container = document.getElementById('tablesCheckList');
+      if (!currentAllTables.length) {
+        container.innerHTML = '<div style="color:var(--dim); padding:10px;">No tables detected yet. Please wait...</div>';
+      } else {
+        const sorted = [...currentAllTables].sort((a,b) => a.localeCompare(b));
+        let allChecked = true;
+        container.innerHTML = sorted.map(t => {
+          const isChecked = !currentIgnoredTables.includes(t);
+          if (!isChecked) allChecked = false;
+          return `<div class="table-check-item">
+            <input type="checkbox" id="chk_${t}" class="table-chk" value="${t}" ${isChecked ? 'checked' : ''} onchange="updateSelectAllState()">
+            <label for="chk_${t}">${t}</label>
+          </div>`;
+        }).join('');
+        document.getElementById('chk_selectAll').checked = allChecked;
+      }
+      document.getElementById('tablesModal').style.display = 'flex';
+    }
+
+    function closeTablesConfig() {
+      document.getElementById('tablesModal').style.display = 'none';
+    }
+
+    function toggleAllTables(chkBox) {
+      const isChecked = chkBox.checked;
+      const checkboxes = document.querySelectorAll('#tablesCheckList .table-chk');
+      checkboxes.forEach(cb => cb.checked = isChecked);
+    }
+
+    function updateSelectAllState() {
+      const checkboxes = document.querySelectorAll('#tablesCheckList .table-chk');
+      let allChecked = true;
+      checkboxes.forEach(cb => { if (!cb.checked) allChecked = false; });
+      document.getElementById('chk_selectAll').checked = allChecked;
+    }
+
+    async function saveTablesConfig() {
+      const checkboxes = document.querySelectorAll('#tablesCheckList .table-chk');
+      const newIgnored = [];
+      checkboxes.forEach(cb => {
+        if (!cb.checked) newIgnored.push(cb.value);
+      });
+      
+      try {
+        const res = await fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ignoredTables: newIgnored })
+        });
+        if (res.ok) {
+          closeTablesConfig();
+          // Reset local variable to avoid delay in UI update
+          currentIgnoredTables = newIgnored;
+          poll();
+        }
+      } catch (e) {
+        alert("Failed to save config.");
+      }
+    }
+
+    function openEvConfig() {
+      const cfg = window.currentConfig || { minEvThreshold: 0.0015, rebateRate: 0.012 };
+      document.getElementById('inp_minEv').value = cfg.minEvThreshold;
+      document.getElementById('inp_rebate').value = cfg.rebateRate;
+      document.getElementById('evModal').style.display = 'flex';
+    }
+
+    function closeEvConfig() {
+      document.getElementById('evModal').style.display = 'none';
+    }
+
+    async function saveEvConfig() {
+      const minEv = parseFloat(document.getElementById('inp_minEv').value);
+      const rebate = parseFloat(document.getElementById('inp_rebate').value);
+      
+      try {
+        const res = await fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ minEvThreshold: minEv, rebateRate: rebate })
+        });
+        if (res.ok) {
+          closeEvConfig();
+          poll();
+        }
+      } catch (e) {
+        alert("Failed to save config.");
+      }
     }
   </script>
 </body>
