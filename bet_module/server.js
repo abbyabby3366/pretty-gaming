@@ -83,41 +83,11 @@ async function runBetPG() {
         console.error(`[Bet Module] ${reason}.`);
       } else {
         // Calculate clicks sequence
-        const { buildAccountConfig } = require("../utils/launch_pg");
-        const acctConfig = buildAccountConfig(0, path.resolve(__dirname, "json", "bet_accounts.json"));
-        const chipValues = acctConfig.chipValues || ["ALL_IN", 10, 50, 100, 500, 1000];
         const targetAmount = bet.recommendedBetAmount || bet.amount || bet.chipIndex || 0;
-        
-        let clicksSequence = [];
-        if ((targetAmount === "ALL_IN" || targetAmount === "all in") && chipValues.map(v => String(v).toUpperCase()).includes("ALL_IN")) {
-          const idx = chipValues.findIndex(v => String(v).toUpperCase() === "ALL_IN");
-          clicksSequence.push({ chipIndex: idx, times: 1 });
-        } else {
-          let amount = parseInt(targetAmount, 10);
-          if (!isNaN(amount) && amount > 0) {
-            let availableChips = chipValues
-              .map((val, index) => ({ val: parseInt(val, 10), index }))
-              .filter(c => !isNaN(c.val))
-              .sort((a, b) => b.val - a.val);
-
-            for (let chip of availableChips) {
-              if (amount >= chip.val) {
-                let times = Math.floor(amount / chip.val);
-                clicksSequence.push({ chipIndex: chip.index, times });
-                amount -= times * chip.val;
-              }
-            }
-          } else {
-             // Fallback
-             clicksSequence.push({ chipIndex: bet.chipIndex || 0, times: 1 });
-          }
-        }
-
         const betConfig = {
           tableName: bet.tableName,
           betType: bet.target || bet.betType,
-          clicksSequence: clicksSequence,
-          clickDelayMs: 200,
+          targetAmount: targetAmount,
           betPlacementDelayMs: parseInt(process.env.BET_PLACEMENT_DELAY_MS || "150", 10),
           chipSelector: ".chip",
         };

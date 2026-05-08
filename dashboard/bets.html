@@ -32,6 +32,8 @@
     .status-PENDING {color:var(--yellow);}
     .status-SUCCESS {color:var(--green);}
     .status-FAILED {color:var(--red);}
+    .status-UNPLACED {color:var(--dim);}
+    .status-WRONG_AMOUNT {color:var(--orange);}
     
     .target-PlayerBet, .target-Player {color:var(--blue);}
     .target-BankerBet, .target-Banker {color:var(--red);}
@@ -88,6 +90,8 @@
       <select id="filter-status" onchange="applyFilters()" style="background:#0d1117;border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:3px;font-family:inherit;font-size:11px;outline:none;">
         <option value="ALL">All Status</option>
         <option value="SUCCESS">Success</option>
+        <option value="WRONG_AMOUNT">Wrong Amount</option>
+        <option value="UNPLACED">Unplaced</option>
         <option value="FAILED">Failed</option>
         <option value="PENDING">Pending</option>
         <option value="AUTOBET_OFF">Autobet Off</option>
@@ -122,6 +126,7 @@
 
   <script>
     let openedReasons = new Set();
+    let currentMinBalance = 0;
     
     function fmtEv(v){
       if(v==null)return'—';
@@ -161,7 +166,7 @@
 
       let profitHtml = '';
       const amt = parseFloat(b.actualBetAmount);
-      if (b.outcome === 'SUCCESS' && !isNaN(amt) && ['B', 'P', 'T'].includes(b.roundOutcome)) {
+      if ((b.outcome === 'SUCCESS' || b.outcome === 'WRONG_AMOUNT') && !isNaN(amt) && ['B', 'P', 'T'].includes(b.roundOutcome)) {
         let profit = 0;
         let targetSide = '';
         if (b.target.includes('Banker')) targetSide = 'B';
@@ -191,9 +196,19 @@
         }
       }
 
-      const isActNull = b.actualBetAmount === '-' || b.actualBetAmount == null;
-      const actAmountText = isActNull ? 'null' : b.actualBetAmount;
-      const actStyle = isActNull ? 'color:white;' : '';
+      let actAmountText;
+      let actStyle = '';
+
+      if (b.outcome === 'PENDING') {
+        actAmountText = '-';
+        actStyle = 'color:white;';
+      } else if (b.actualBetAmount === '-' || b.actualBetAmount == null) {
+        actAmountText = 'null';
+        actStyle = 'color:var(--red);';
+      } else {
+        actAmountText = b.actualBetAmount;
+        actStyle = 'color:white;';
+      }
 
       return `
         <tr>
@@ -214,6 +229,7 @@
               <span style="${actStyle}">Act: <strong>${actAmountText}</strong></span>
             </div>
             <div class="${statusCls}" style="font-weight:600;">${b.outcome}</div>
+            ${b.outcome === 'UNPLACED' && b.executionState && b.executionState.reason ? `<div style="font-size:10px;color:var(--dim);margin-top:4px;">${b.executionState.reason}</div>` : ''}
           </td>
           <td>
             <div style="font-weight:600;font-size:14px;color:${b.roundOutcome==='UNKNOWN'?'var(--dim)':(b.roundOutcome==='WAITING'?'var(--yellow)':'var(--purple)')}">${b.roundOutcome}</div>
@@ -265,10 +281,10 @@
            document.getElementById('cfg-method').value = data.config.method || 'kelly';
            document.getElementById('cfg-bankroll').value = data.config.startingBankroll;
            document.getElementById('cfg-kelly').value = data.config.kellyFraction;
-           document.getElementById('cfg-flat').value = data.config.flatRatio || 0.01;
+           document.getElementById('cfg-flat').value = data.config.flatRatio ?? 0.01;
            document.getElementById('cfg-rounding').value = data.config.rounding;
            document.getElementById('cfg-maxbet').value = data.config.maxBet;
-           document.getElementById('cfg-min-balance').value = data.config.minAccountBalance || 1000;
+           document.getElementById('cfg-min-balance').value = data.config.minAccountBalance ?? 1000;
            updateMethodVisibility();
            document.getElementById('settings-modal').style.display = 'flex';
         }
@@ -317,6 +333,7 @@
            headers: { 'Content-Type': 'application/json' },
            body: JSON.stringify(payload)
         });
+        currentMinBalance = payload.minAccountBalance;
         closeSettings();
       } catch(e) {
         alert("Failed to save settings");
@@ -379,8 +396,18 @@
             if (m.accounts && m.accounts.length > 0) {
               for (const a of m.accounts) {
                  const isReady = a.isAcceptingBets;
-                 const readyColor = isReady ? 'var(--green)' : 'var(--yellow)';
-                 const readyText = isReady ? 'READY' : (isOnline ? 'LAUNCHING' : 'OFFLINE');
+                 let readyColor = isReady ? 'var(--green)' : 'var(--yellow)';
+                 let readyText = isReady ? 'READY' : (isOnline ? 'LAUNCHING' : 'OFFLINE');
+
+                 if (isReady && a.balance != null) {
+                    const cleanBalance = String(a.balance).replace(/[^0-9.]/g, '');
+                    const parsedBalance = parseFloat(cleanBalance);
+                    if (!isNaN(parsedBalance) && parsedBalance < currentMinBalance) {
+                        readyColor = 'var(--red)';
+                        readyText = 'INSUFFICIENT BALANCE';
+                    }
+                 }
+
                  const balanceText = a.balance != null ? `<span style="color:var(--text);margin-right:10px;">Balance: <strong style="color:var(--green)">${a.balance}</strong></span>` : '';
                  acctHtml += `<div class="acct-row">${balanceText}<span style="color:${readyColor};font-weight:600;">${readyText}</span></div>`;
               }
@@ -438,6 +465,7 @@
         const data = await res.json();
         if (data.ok) {
            document.getElementById('cfg-autobet-outside').checked = data.config.autoBetEnabled ?? true;
+           currentMinBalance = data.config.minAccountBalance || 0;
         }
       } catch(e) {}
     }

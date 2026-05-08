@@ -127,9 +127,9 @@ class TableStateManager {
         });
       }
 
-      // ── Reset deck if recorded hands exceed current round ──
-      if (ts.handNumber > newRound && newRound > 0) {
-        this._resetShoe(ts, `Invalid state: recorded hands (${ts.handNumber}) > table round (${newRound})`);
+      // ── Reset deck if recorded hands exceed current round (with +1 tolerance for UI lag) ──
+      if (ts.handNumber > newRound + 1 && newRound > 0) {
+        this._resetShoe(ts, `Invalid state: recorded hands (${ts.handNumber}) > table round + 1 (${newRound + 1})`);
         events.push({
           type: "SHOE_RESET",
           tableName: name,

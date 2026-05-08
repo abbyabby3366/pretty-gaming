@@ -81,6 +81,14 @@ function resolveBetModuleTarget() {
     });
   }
 
+  // ONLY allow modules that are fully launched and accepting bets
+  online = online.filter(m => {
+    if (m.accounts && m.accounts.length > 0) {
+       return m.accounts.some(acc => acc.isAcceptingBets === true);
+    }
+    return false; // If no accounts reported, don't blindly route to it
+  });
+
   if (online.length === 0) return null;
   
   if (betConfig.mode === 'round_robin' || !betConfig.mode) {
@@ -188,7 +196,7 @@ function startDashboard(stateManager) {
               
               let profit = 0;
               const amt = parseFloat(existingBet.actualBetAmount);
-              if (existingBet.outcome === 'SUCCESS' && !isNaN(amt)) {
+              if ((existingBet.outcome === 'SUCCESS' || existingBet.outcome === 'WRONG_AMOUNT') && !isNaN(amt)) {
                 let targetSide = '';
                 if (existingBet.target.includes('Banker')) targetSide = 'B';
                 else if (existingBet.target.includes('Player')) targetSide = 'P';
@@ -338,11 +346,26 @@ function startDashboard(stateManager) {
         const body = await parseJSONBody(req);
         const bet = betLog.find(b => b.id === body.betId);
         if (bet) {
-          bet.outcome = body.status;
           bet.executionState = body;
+          
+          let placedAmtStr = String(body.betAmount || "").replace(/,/g, '');
+          let placedAmt = parseFloat(placedAmtStr);
+          let targetAmt = parseFloat(bet.recommendedBetAmount);
+          
           if (body.status === "SUCCESS") {
-            bet.actualBetAmount = body.actualBetAmount || bet.recommendedBetAmount;
+            if (isNaN(placedAmt) || placedAmt <= 0) {
+              bet.outcome = "UNPLACED";
+            } else if (placedAmt !== targetAmt) {
+              bet.outcome = "WRONG_AMOUNT";
+            } else {
+              bet.outcome = "SUCCESS";
+            }
+          } else {
+            bet.outcome = "UNPLACED";
           }
+          
+          bet.actualBetAmount = body.betAmount || "-";
+          
           if (dbCollection) {
             dbCollection.updateOne(
               { id: bet.id },
@@ -436,7 +459,7 @@ function startDashboard(stateManager) {
           }
         }
         
-        const matchQ = { outcome: "SUCCESS" };
+        const matchQ = { outcome: { $in: ["SUCCESS", "WRONG_AMOUNT"] } };
         if (startStr && endStr) {
           matchQ.time = { $gte: startStr, $lt: endStr };
         }
