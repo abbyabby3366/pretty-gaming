@@ -41,6 +41,19 @@ const MAX_BET_LOG = 200;
 // Track active bet modules via heartbeat
 const activeModules = new Map(); // moduleId -> { baseUrl, lastHeartbeat, label }
 const cumulativeProfitMap = {};
+const todayProfitMap = {};
+
+function getTodayStart() {
+  const now = new Date();
+  const today12pm = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0);
+  if (now < today12pm) {
+     const yesterday12pm = new Date(today12pm);
+     yesterday12pm.setDate(yesterday12pm.getDate() - 1);
+     return yesterday12pm;
+  }
+  return today12pm;
+}
+
 let lastRoundRobinIndex = 0;
 
 function resolveBetModuleTarget() {
@@ -120,6 +133,19 @@ function startDashboard(stateManager) {
       for (const r of agg) {
         cumulativeProfitMap[r._id] = r.total;
       }
+
+      // Periodically update today's profit
+      setInterval(async () => {
+        try {
+          const todayStartStr = getTodayStart().toISOString();
+          const todayAgg = await dbCollection.aggregate([
+            { $match: { profit: { $ne: null }, time: { $gte: todayStartStr } } },
+            { $group: { _id: "$targetModule", total: { $sum: "$profit" } } }
+          ]).toArray();
+          for (const k of Object.keys(todayProfitMap)) todayProfitMap[k] = 0;
+          for (const r of todayAgg) todayProfitMap[r._id] = r.total;
+        } catch(e) {}
+      }, 5000);
     } catch (err) {
       console.error("[MongoDB] Failed to connect:", err.message);
     }
@@ -181,6 +207,7 @@ function startDashboard(stateManager) {
               existingBet.profit = profit;
               if (existingBet.targetModule) {
                 cumulativeProfitMap[existingBet.targetModule] = (cumulativeProfitMap[existingBet.targetModule] || 0) + profit;
+                todayProfitMap[existingBet.targetModule] = (todayProfitMap[existingBet.targetModule] || 0) + profit;
               }
 
               if (dbCollection) {
@@ -242,7 +269,12 @@ function startDashboard(stateManager) {
         let targetModuleLabel = targetBaseUrl || "NONE";
         if (targetBaseUrl) {
            const mod = Array.from(activeModules.values()).find(m => m.baseUrl === targetBaseUrl);
-           if (mod && mod.label) targetModuleLabel = mod.label;
+           if (mod) {
+             targetModuleLabel = mod.label || targetModuleLabel;
+             if (mod.accounts && mod.accounts.length > 0 && mod.accounts[0].label) {
+               targetModuleLabel = mod.accounts[0].label;
+             }
+           }
         }
 
         const betEntry = {
@@ -256,7 +288,7 @@ function startDashboard(stateManager) {
           reasonState: body,
           executionState: null,
           outcomeState: null,
-          outcome: !betConfig.autoBetEnabled ? "AUTOBET_DISABLED" : (targetBaseUrl ? "PENDING" : "NO_MODULES_ONLINE"),
+          outcome: !betConfig.autoBetEnabled ? "AUTOBET_OFF" : (targetBaseUrl ? "PENDING" : "NO_MODULES_ONLINE"),
           recommendedBetAmount: recommendedBetAmount,
           actualBetAmount: "-",
           roundOutcome: "WAITING",
@@ -360,8 +392,56 @@ function startDashboard(stateManager) {
     if (req.method === "GET" && req.url.startsWith("/api/stats")) {
       try {
         if (!dbCollection) throw new Error("DB not connected");
+
+        const url = new URL(req.url, `http://localhost:${PORT}`);
+        const range = url.searchParams.get("range") || "all_time";
         
-        const bets = await dbCollection.find({ outcome: "SUCCESS" }).toArray();
+        let startStr = null;
+        let endStr = null;
+        let dateInfo = "All Time";
+        
+        if (range !== "all_time") {
+          const now = new Date();
+          const today12pm = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0);
+          let currentPeriodStart = new Date(today12pm);
+          if (now < today12pm) {
+            currentPeriodStart.setDate(currentPeriodStart.getDate() - 1);
+          }
+          
+          let startDate = null;
+          let endDate = null;
+          
+          if (range === 'today') {
+            startDate = new Date(currentPeriodStart);
+            endDate = new Date(currentPeriodStart);
+            endDate.setDate(endDate.getDate() + 1);
+          } else if (range === 'yesterday') {
+            startDate = new Date(currentPeriodStart);
+            startDate.setDate(startDate.getDate() - 1);
+            endDate = new Date(currentPeriodStart);
+          } else if (range === 'this_week') {
+            let dayOfWeek = currentPeriodStart.getDay();
+            let daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+            startDate = new Date(currentPeriodStart);
+            startDate.setDate(startDate.getDate() - daysSinceMonday);
+            endDate = new Date(startDate);
+            endDate.setDate(endDate.getDate() + 7);
+          }
+          
+          if (startDate && endDate) {
+             startStr = startDate.toISOString();
+             endStr = endDate.toISOString();
+             const options = { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit', hour12: true };
+             dateInfo = `${startDate.toLocaleString('en-GB', options)} to ${endDate.toLocaleString('en-GB', options)}`;
+          }
+        }
+        
+        const matchQ = { outcome: "SUCCESS" };
+        if (startStr && endStr) {
+          matchQ.time = { $gte: startStr, $lt: endStr };
+        }
+        
+        const bets = await dbCollection.find(matchQ).toArray();
 
         const statsMap = {};
         let totalStats = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0 };
@@ -427,7 +507,7 @@ function startDashboard(stateManager) {
         }
 
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true, stats: result }));
+        res.end(JSON.stringify({ ok: true, stats: result, dateInfo }));
       } catch(e) {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: false, error: e.message }));
@@ -446,10 +526,19 @@ function startDashboard(stateManager) {
       res.end(JSON.stringify({ 
         ok: true, 
         betLog, 
-        activeModules: Array.from(activeModules.values()).map(m => ({
-           ...m,
-           cumulativeProfit: cumulativeProfitMap[m.label] || 0
-        })),
+        activeModules: Array.from(activeModules.values()).map(m => {
+           const label = m.label;
+           const accLabel = m.accounts && m.accounts.length > 0 ? m.accounts[0].label : null;
+           const c1 = cumulativeProfitMap[label] || 0;
+           const c2 = accLabel ? (cumulativeProfitMap[accLabel] || 0) : 0;
+           const t1 = todayProfitMap[label] || 0;
+           const t2 = accLabel ? (todayProfitMap[accLabel] || 0) : 0;
+           return {
+             ...m,
+             cumulativeProfit: c1 + c2,
+             todayProfit: t1 + t2
+           };
+        }),
         lastUpdated
       }));
       return;

@@ -99,5 +99,4 @@ function calculateEV(composition, config = {}) {
     return null;
   }
 }
-
-module.exports = { calculateEV, REBATE_RATE, MIN_EV_THRESHOLD };
+module.exports = { calculateEV };

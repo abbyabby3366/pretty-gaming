@@ -6,10 +6,10 @@ const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
 const { cleanUpDOM } = require("../utils/cleanUpDOM");
 const { executeBetInBrowser } = require("./executeBet");
 
-const PORT = parseInt(process.env.PORT || "4001", 10);
+const PORT = parseInt(process.env.BET_PORT || "4001", 10);
 const CENTRAL_URL = process.env.CENTRAL_URL || "http://127.0.0.1:3456";
 const MODULE_ID = "bet-module-" + PORT;
-const BASE_URL = `http://127.0.0.1:${PORT}`;
+const BASE_URL = process.env.BET_MODULE_BASE_URL || `http://127.0.0.1:${PORT}`;
 
 const betQueue = [];
 let isBrowserReady = false;

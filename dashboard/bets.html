@@ -76,10 +76,23 @@
         <span style="font-weight:600;color:var(--yellow);">Auto Bet</span>
       </label>
       <button onclick="openSettings()" style="background:var(--cyan);color:#000;border:none;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit;font-weight:600;margin-left:5px;">Bet Settings</button>
+      <button onclick="openStats()" style="background:var(--blue);color:white;border:none;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit;font-weight:600;margin-left:5px;">View Stats</button>
+      <a href="/">← Back to Tables</a>
+    </div>
+  </div>
+  <div class="modules-panel" id="modules-panel">
+    <div style="color:var(--dim);">Loading modules...</div>
+  </div>
+  <div class="main">
+    <div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:10px;">
       <select id="filter-status" onchange="applyFilters()" style="background:#0d1117;border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:3px;font-family:inherit;font-size:11px;outline:none;">
         <option value="ALL">All Status</option>
         <option value="SUCCESS">Success</option>
         <option value="FAILED">Failed</option>
+        <option value="PENDING">Pending</option>
+        <option value="AUTOBET_OFF">Autobet Off</option>
+        <option value="NO_MODULES_ONLINE">No Modules Online</option>
+        <option value="NETWORK_ERROR">Network Error</option>
       </select>
       <select id="filter-limit" onchange="applyFilters()" style="background:#0d1117;border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:3px;font-family:inherit;font-size:11px;outline:none;">
         <option value="10">10 per page</option>
@@ -89,14 +102,7 @@
         <option value="500">500 per page</option>
       </select>
       <button onclick="clearLogs()" style="background:var(--red);color:white;border:none;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit;font-weight:600;">Clear Logs</button>
-      <button onclick="openStats()" style="background:var(--blue);color:white;border:none;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit;font-weight:600;margin-left:5px;">View Stats</button>
-      <a href="/">← Back to Tables</a>
     </div>
-  </div>
-  <div class="modules-panel" id="modules-panel">
-    <div style="color:var(--dim);">Loading modules...</div>
-  </div>
-  <div class="main">
     <table>
       <thead>
         <tr>
@@ -177,6 +183,18 @@
         profitHtml = `<div style="color:${color};font-size:11px;margin-top:4px;font-weight:600;">${sign}${profit.toFixed(2)}</div>`;
       }
       
+      let displayModuleLabel = b.targetModule;
+      if (currentActiveModules && currentActiveModules.length > 0) {
+        const matchedMod = currentActiveModules.find(m => m.label === b.targetModule || m.baseUrl === b.targetModule || (m.accounts && m.accounts[0] && m.accounts[0].label === b.targetModule));
+        if (matchedMod && matchedMod.accounts && matchedMod.accounts.length > 0 && matchedMod.accounts[0].label) {
+           displayModuleLabel = matchedMod.accounts[0].label;
+        }
+      }
+
+      const isActNull = b.actualBetAmount === '-' || b.actualBetAmount == null;
+      const actAmountText = isActNull ? 'null' : b.actualBetAmount;
+      const actStyle = isActNull ? 'color:white;' : '';
+
       return `
         <tr>
           <td style="color:var(--dim);">${timeStr}</td>
@@ -190,12 +208,12 @@
             <div style="color:${b.ev>=0?'var(--green)':'var(--red)'};font-weight:600;margin-top:4px;">EV: ${fmtEv(b.ev)}</div>
           </td>
           <td>
-            <div style="color:var(--text);margin-bottom:4px;">Node: <span style="color:var(--cyan)">${b.targetModule}</span></div>
+            <div style="color:var(--cyan);margin-bottom:4px;">${displayModuleLabel}</div>
             <div style="color:var(--dim);display:flex;gap:12px;margin-bottom:4px;">
               <span>Rec: <strong>${b.recommendedBetAmount}</strong></span>
-              <span>Act: <strong>${b.actualBetAmount === '-' || b.actualBetAmount == null ? 'null' : b.actualBetAmount}</strong></span>
+              <span style="${actStyle}">Act: <strong>${actAmountText}</strong></span>
             </div>
-            <div class="${statusCls}" style="font-weight:600;">Status: ${b.outcome}</div>
+            <div class="${statusCls}" style="font-weight:600;">${b.outcome}</div>
           </td>
           <td>
             <div style="font-weight:600;font-size:14px;color:${b.roundOutcome==='UNKNOWN'?'var(--dim)':(b.roundOutcome==='WAITING'?'var(--yellow)':'var(--purple)')}">${b.roundOutcome}</div>
@@ -307,6 +325,7 @@
 
     let lastDataStr = '';
     let currentBetsData = [];
+    let currentActiveModules = [];
 
     function applyFilters() {
       const statusFilter = document.getElementById('filter-status').value;
@@ -374,9 +393,13 @@
               headerLabel = m.accounts[0].label;
             }
 
-            const profit = m.cumulativeProfit || 0;
-            const profitSign = profit > 0 ? '+' : '';
-            const profitColor = profit > 0 ? 'var(--green)' : (profit < 0 ? 'var(--red)' : 'var(--text)');
+            const profitAll = m.cumulativeProfit || 0;
+            const profitSignAll = profitAll > 0 ? '+' : '';
+            const profitColorAll = profitAll > 0 ? 'var(--green)' : (profitAll < 0 ? 'var(--red)' : 'var(--text)');
+
+            const profitToday = m.todayProfit || 0;
+            const profitSignToday = profitToday > 0 ? '+' : '';
+            const profitColorToday = profitToday > 0 ? 'var(--green)' : (profitToday < 0 ? 'var(--red)' : 'var(--text)');
 
             modHtml += `
               <div class="module-card">
@@ -384,9 +407,9 @@
                   <span>${headerLabel}</span>
                   <span class="status-dot ${dotClass}" title="Last seen ${Math.round((now - m.lastHeartbeat)/1000)}s ago"></span>
                 </div>
-                <div class="m-url" style="display:flex; justify-content:space-between;">
-                  <span>${m.baseUrl}</span>
-                  <span style="color:${profitColor}; font-weight:600;" title="Cumulative Profit/Loss">P/L: ${profitSign}${profit.toFixed(2)}</span>
+                <div class="m-url" style="display:flex; justify-content:flex-end; gap:12px; margin-bottom:4px;">
+                  <span style="color:${profitColorToday}; font-weight:600;" title="Today's P/L (Since 12 PM)">Today: ${profitSignToday}${profitToday.toFixed(2)}</span>
+                  <span style="color:${profitColorAll}; font-weight:600;" title="All-Time P/L">All Time: ${profitSignAll}${profitAll.toFixed(2)}</span>
                 </div>
                 ${acctHtml}
               </div>
@@ -395,9 +418,10 @@
         }
         document.getElementById('modules-panel').innerHTML = modHtml;
 
+        currentActiveModules = betsData.activeModules || [];
         const bets = betsData.betLog || [];
         
-        const currentDataStr = JSON.stringify(bets);
+        const currentDataStr = JSON.stringify(bets) + JSON.stringify(currentActiveModules.map(m => m.label));
         if (currentDataStr !== lastDataStr) {
           lastDataStr = currentDataStr;
           currentBetsData = bets;
@@ -418,13 +442,15 @@
       } catch(e) {}
     }
 
-    async function openStats() {
+    async function openStats(range = 'today') {
       document.getElementById('stats-modal').style.display = 'flex';
       document.getElementById('stats-content').innerHTML = '<div style="padding:20px; color:var(--dim); text-align:center;">Loading stats from database...</div>';
+      document.getElementById('stats-date-info').textContent = 'Loading range...';
       try {
-        const res = await fetch('/api/stats');
+        const res = await fetch(`/api/stats?range=${range}`);
         const data = await res.json();
         if (data.ok) {
+           document.getElementById('stats-date-info').textContent = data.dateInfo;
            let html = '<table style="width:100%; border-collapse:collapse; margin-bottom:10px; font-size:11px;">';
            html += '<thead><tr><th style="padding-bottom:10px;">Node</th><th style="text-align:right; padding-bottom:10px;">Bal</th><th style="text-align:right; padding-bottom:10px;">PNL</th><th style="text-align:right; padding-bottom:10px;">Eff. Turnover</th><th style="text-align:right; padding-bottom:10px;">Eff. Rebate</th><th style="text-align:right; padding-bottom:10px;">Exp. Loss</th><th style="text-align:right; padding-bottom:10px;">Avg EV</th></tr></thead><tbody>';
            
@@ -528,6 +554,13 @@
         <h2 style="margin:0; color:var(--cyan);">Performance Stats</h2>
         <button onclick="closeStats()" style="background:none;border:none;color:var(--text);cursor:pointer;font-size:18px;">&times;</button>
       </div>
+      <div style="display:flex; gap:10px; margin-bottom:15px; border-bottom:1px solid var(--border); padding-bottom:10px;">
+         <button onclick="openStats('today')" class="btn btn-secondary">Today</button>
+         <button onclick="openStats('yesterday')" class="btn btn-secondary">Yesterday</button>
+         <button onclick="openStats('this_week')" class="btn btn-secondary">This Week</button>
+         <button onclick="openStats('all_time')" class="btn btn-secondary">All Time</button>
+      </div>
+      <div id="stats-date-info" style="color:var(--yellow); font-size:11px; margin-bottom:10px; font-weight:600;"></div>
       <div id="stats-content" style="max-height:60vh; overflow-y:auto; background:#0d1117; border:1px solid var(--border); border-radius:4px;">
       </div>
       <div class="modal-actions" style="margin-top:15px;">

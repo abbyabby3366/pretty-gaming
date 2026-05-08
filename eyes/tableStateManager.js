@@ -104,8 +104,6 @@ class TableStateManager {
       // ── Validate restored state on first tick ──
       if (ts.restored) {
         ts.restored = false;
-        
-        const minExpectedCards = 416 - (newRound * 6);
 
         if (newRound < ts.lastRound) {
           this._resetShoe(ts, `Stale state: round went from ${ts.lastRound} → ${newRound}`);
@@ -113,13 +111,6 @@ class TableStateManager {
             type: "SHOE_RESET",
             tableName: name,
             reason: `Round dropped ${ts.lastRound} → ${newRound} after restore`,
-          });
-        } else if (ts.remaining < minExpectedCards) {
-          this._resetShoe(ts, `Invalid state: cards left (${ts.remaining}) < expected min (${minExpectedCards}) for round ${newRound}`);
-          events.push({
-            type: "SHOE_RESET",
-            tableName: name,
-            reason: `Restored deck size ${ts.remaining} is too low for round ${newRound}`,
           });
         } else {
           console.log(`\x1b[36m[STATE] ${name}: Validated (saved R${ts.lastRound} → live R${newRound})\x1b[0m`);
@@ -133,6 +124,27 @@ class TableStateManager {
           type: "SHOE_RESET",
           tableName: name,
           reason: "Shuffling state detected",
+        });
+      }
+
+      // ── Reset deck if recorded hands exceed current round ──
+      if (ts.handNumber > newRound && newRound > 0) {
+        this._resetShoe(ts, `Invalid state: recorded hands (${ts.handNumber}) > table round (${newRound})`);
+        events.push({
+          type: "SHOE_RESET",
+          tableName: name,
+          reason: `Recorded hands ${ts.handNumber} exceeds table round ${newRound}`,
+        });
+      }
+
+      // ── Reset deck if mathematically invalid deck size ──
+      const minExpectedCards = 416 - (newRound * 6);
+      if (ts.remaining < minExpectedCards) {
+        this._resetShoe(ts, `Invalid state: cards left (${ts.remaining}) < expected min (${minExpectedCards}) for round ${newRound}`);
+        events.push({
+          type: "SHOE_RESET",
+          tableName: name,
+          reason: `Deck size ${ts.remaining} is too low for round ${newRound}`,
         });
       }
 
