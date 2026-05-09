@@ -45,7 +45,6 @@ for (let i = 0; i < runnableAccounts.length; i++) {
   const childEnv = {
     ...process.env,
     BET_PORT: String(port),
-    BET_MODULE_BASE_URL: `http://127.0.0.1:${port}`,
     ACCOUNT_INDEX: String(acct.originalIndex),
   };
 
