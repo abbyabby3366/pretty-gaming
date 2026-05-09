@@ -27,23 +27,37 @@ const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
       // Schedule session restart if configured
       const restartMinutes = acctConfig.sessionRestartMinutes;
       if (restartMinutes && restartMinutes > 0) {
-        console.log(`[Session Restart] Scheduled in ${restartMinutes} minutes for ${acctConfig.label}.`);
-        sessionRestartTimer = setTimeout(async () => {
-          console.log(`\x1b[33m[Session Restart] Timer fired for ${acctConfig.label}. Closing game pages...`);
+        console.log(`[Session Restart] Polling enabled. Will restart ${restartMinutes} minutes after login for ${acctConfig.label}.`);
+        const launchTime = Date.now();
+        
+        sessionRestartTimer = setInterval(async () => {
+          let loginTime = launchTime;
+          try {
+            const timestampsStr = require('fs').readFileSync(require('path').resolve(__dirname, "..", "utils", "login_timestamps.json"), 'utf8');
+            const timestamps = JSON.parse(timestampsStr);
+            if (timestamps[acctConfig.label]) loginTime = timestamps[acctConfig.label];
+          } catch (e) {}
+          
+          const elapsedMin = (Date.now() - loginTime) / 60000;
+          if (elapsedMin < restartMinutes) return;
+          
+          clearInterval(sessionRestartTimer);
+          sessionRestartTimer = null;
 
-          // Close all game pages, keep Chrome alive with a blank tab
+          console.log(`\x1b[33m[Session Restart] ${elapsedMin.toFixed(1)} mins elapsed for ${acctConfig.label}. Closing game pages...\x1b[0m`);
+
+          // Step 3: Close Winbox and Game pages, but leave the default about:blank to keep Chrome alive
+          console.log(`[Session Restart] Closing Winbox and Game pages to force a fresh login...`);
           try {
             if (browserContext) {
-              const blankPage = await browserContext.newPage();
-              await blankPage.goto('about:blank').catch(() => {});
-              
               const allPages = await browserContext.pages();
               for (const p of allPages) {
-                if (p !== blankPage) {
+                const url = p.url() || "";
+                if (url !== "about:blank" && !url.startsWith("chrome://")) {
                   await p.close().catch(() => {});
                 }
               }
-              console.log(`[Session Restart] All game pages closed. Blank tab kept alive for reconnect.`);
+              console.log(`[Session Restart] Winbox and Game pages closed. Default page kept alive.`);
             }
           } catch (e) {
             console.error(`[Session Restart] Error closing pages:`, e.message);
@@ -52,13 +66,13 @@ const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
           sendWhatsAppNotification(
             `[SESSION RESTART] Eyes module "${acctConfig.label}" session restart after ${restartMinutes} min. Relaunching...`
           ).catch(err => console.error("WhatsApp notification failed:", err.message));
-        }, restartMinutes * 60 * 1000);
+        }, 30000); // Check every 30 seconds
       }
 
       await runEyesPG(page, extractorCode, acctConfig);
       
       if (sessionRestartTimer) {
-        clearTimeout(sessionRestartTimer);
+        clearInterval(sessionRestartTimer);
         sessionRestartTimer = null;
       }
 
@@ -69,7 +83,7 @@ const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
     } catch (err) {
       console.error("\x1b[31m[RECOVERY] Launch/Recovery error:\x1b[0m", err.message);
       if (sessionRestartTimer) {
-        clearTimeout(sessionRestartTimer);
+        clearInterval(sessionRestartTimer);
         sessionRestartTimer = null;
       }
       if (browserContext) await browserContext.disconnect().catch(() => {});

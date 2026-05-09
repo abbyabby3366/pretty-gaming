@@ -1,3 +1,11 @@
+const fs = require('fs');
+const path = require('path');
+const LOGIN_TIMESTAMPS_FILE = path.resolve(__dirname, "login_timestamps.json");
+
+function readLoginTimestamps() {
+  try { return JSON.parse(fs.readFileSync(LOGIN_TIMESTAMPS_FILE, "utf8")); } catch (e) { return {}; }
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -181,13 +181,26 @@ function scheduleSessionRestart(acctConfig) {
   if (!minutes || minutes <= 0) return;
   
   // Clear any existing timer
-  if (sessionRestartTimer) clearTimeout(sessionRestartTimer);
+  if (sessionRestartTimer) clearInterval(sessionRestartTimer);
   
-  const ms = minutes * 60 * 1000;
-  console.log(`[Session Restart] Scheduled in ${minutes} minutes for ${acctConfig.label}.`);
+  console.log(`[Session Restart] Polling enabled. Will restart ${minutes} minutes after login for ${acctConfig.label}.`);
+  const launchTime = Date.now();
   
-  sessionRestartTimer = setTimeout(async () => {
-    console.log(`\x1b[33m[Session Restart] Timer fired for ${acctConfig.label}. Initiating graceful restart...\x1b[0m`);
+  sessionRestartTimer = setInterval(async () => {
+    let loginTime = launchTime;
+    try {
+      const timestampsStr = require('fs').readFileSync(require('path').resolve(__dirname, "..", "utils", "login_timestamps.json"), 'utf8');
+      const timestamps = JSON.parse(timestampsStr);
+      if (timestamps[acctConfig.label]) loginTime = timestamps[acctConfig.label];
+    } catch (e) {}
+    
+    const elapsedMin = (Date.now() - loginTime) / 60000;
+    if (elapsedMin < minutes) return;
+    
+    clearInterval(sessionRestartTimer);
+    sessionRestartTimer = null;
+    
+    console.log(`\x1b[33m[Session Restart] ${elapsedMin.toFixed(1)} mins elapsed for ${acctConfig.label}. Initiating graceful restart...\x1b[0m`);
     
     // Step 1: Stop accepting new bets immediately
     isBrowserReady = false;
@@ -204,22 +217,18 @@ function scheduleSessionRestart(acctConfig) {
       console.log(`\x1b[31m[Session Restart] Bet still in progress after ${maxWaitMs / 1000}s, forcing restart anyway.\x1b[0m`);
     }
     
-    // Step 3: Close all game pages (keep Chrome alive with a blank tab)
-    console.log(`[Session Restart] Closing game pages (keeping Chrome alive)...`);
+    // Step 3: Close Winbox and Game pages, but leave the default about:blank to keep Chrome alive
+    console.log(`[Session Restart] Closing Winbox and Game pages to force a fresh login...`);
     try {
       if (browserInstance) {
-        // Open a blank tab first so Chrome doesn't exit when we close the others
-        const blankPage = await browserInstance.newPage();
-        await blankPage.goto('about:blank').catch(() => {});
-        
-        // Close all other pages (game tabs, winbox tabs, etc.)
         const allPages = await browserInstance.pages();
         for (const p of allPages) {
-          if (p !== blankPage) {
+          const url = p.url() || "";
+          if (url !== "about:blank" && !url.startsWith("chrome://")) {
             await p.close().catch(() => {});
           }
         }
-        console.log(`[Session Restart] All game pages closed. Blank tab kept alive for reconnect.`);
+        console.log(`[Session Restart] Winbox and Game pages closed. Default page kept alive.`);
       }
     } catch (e) {
       console.error(`[Session Restart] Error closing pages:`, e.message);
@@ -232,7 +241,7 @@ function scheduleSessionRestart(acctConfig) {
     ).catch(err => console.error("WhatsApp notification failed:", err.message));
     
     // The initBrowser loop will detect page.isClosed() and relaunch via launchAccount
-  }, ms);
+  }, 30000); // Poll every 30 seconds
 }
 
 async function initBrowser() {
@@ -280,7 +289,7 @@ async function initBrowser() {
         domCleanupInterval = null;
       }
       if (sessionRestartTimer) {
-        clearTimeout(sessionRestartTimer);
+        clearInterval(sessionRestartTimer);
         sessionRestartTimer = null;
       }
       
@@ -300,7 +309,7 @@ async function initBrowser() {
         domCleanupInterval = null;
       }
       if (sessionRestartTimer) {
-        clearTimeout(sessionRestartTimer);
+        clearInterval(sessionRestartTimer);
         sessionRestartTimer = null;
       }
       if (browserContext) await browserContext.disconnect().catch(() => {});
