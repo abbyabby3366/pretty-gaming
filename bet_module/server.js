@@ -1,7 +1,6 @@
 const http = require("http");
 const crypto = require("crypto");
 const path = require("path");
-const { execSync } = require("child_process");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
 const { cleanUpDOM } = require("../utils/cleanUpDOM");
@@ -24,7 +23,6 @@ let browserPage = null;
 let browserInstance = null;
 let domCleanupInterval = null;
 let latestBalance = null;
-let sessionRestartPending = false;
 let isBetInProgress = false;
 let sessionRestartTimer = null;
 
@@ -171,39 +169,11 @@ const server = http.createServer(async (req, res) => {
 });
 
 /**
- * Kill Chrome by its remote debugging port.
- * Uses taskkill on Windows to find and terminate the process that owns the port.
- */
-function killChromeByPort(port) {
-  try {
-    // Find the PID listening on the debugging port
-    const result = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, { encoding: 'utf-8' });
-    const lines = result.trim().split('\n');
-    const pids = new Set();
-    for (const line of lines) {
-      const parts = line.trim().split(/\s+/);
-      const pid = parts[parts.length - 1];
-      if (pid && /^\d+$/.test(pid) && pid !== '0') pids.add(pid);
-    }
-    for (const pid of pids) {
-      console.log(`[Session Restart] Killing Chrome process PID ${pid}...`);
-      execSync(`taskkill /PID ${pid} /T /F`, { encoding: 'utf-8' });
-    }
-    return true;
-  } catch (e) {
-    console.error(`[Session Restart] Failed to kill Chrome on port ${port}:`, e.message);
-    return false;
-  }
-}
-
-/**
  * Schedules a session restart after the configured number of minutes.
- * For the bet module, it:
- * 1. Immediately sets isBrowserReady = false so central won't route new bets
- * 2. Waits for any in-progress bet to complete
- * 3. Kills the Chrome browser process
- * 4. Sends a WhatsApp notification
- * The existing browser lifecycle loop then auto-relaunches.
+ * Instead of killing Chrome, we close all game/winbox tabs while keeping
+ * a blank tab alive. This makes page.isClosed() return true so the
+ * initBrowser loop picks up and re-runs launchAccount, which reconnects
+ * to the still-running Chrome and re-navigates through login.
  */
 function scheduleSessionRestart(acctConfig) {
   const minutes = acctConfig.sessionRestartMinutes;
@@ -220,7 +190,6 @@ function scheduleSessionRestart(acctConfig) {
     
     // Step 1: Stop accepting new bets immediately
     isBrowserReady = false;
-    sessionRestartPending = true;
     sendHeartbeat(); // Immediately notify central that isAcceptingBets is now false
     
     // Step 2: Wait for any in-progress bet to complete
@@ -234,31 +203,34 @@ function scheduleSessionRestart(acctConfig) {
       console.log(`\x1b[31m[Session Restart] Bet still in progress after ${maxWaitMs / 1000}s, forcing restart anyway.\x1b[0m`);
     }
     
-    // Step 3: Close Chrome gracefully (avoids stale lock files)
-    console.log(`[Session Restart] Closing Chrome gracefully...`);
-    let closed = false;
-    if (browserInstance) {
-      try {
-        await browserInstance.close();
-        closed = true;
-        console.log(`[Session Restart] Chrome closed gracefully.`);
-      } catch (e) {
-        console.error(`[Session Restart] Graceful close failed: ${e.message}. Falling back to taskkill...`);
+    // Step 3: Close all game pages (keep Chrome alive with a blank tab)
+    console.log(`[Session Restart] Closing game pages (keeping Chrome alive)...`);
+    try {
+      if (browserInstance) {
+        // Open a blank tab first so Chrome doesn't exit when we close the others
+        const blankPage = await browserInstance.newPage();
+        await blankPage.goto('about:blank').catch(() => {});
+        
+        // Close all other pages (game tabs, winbox tabs, etc.)
+        const allPages = await browserInstance.pages();
+        for (const p of allPages) {
+          if (p !== blankPage) {
+            await p.close().catch(() => {});
+          }
+        }
+        console.log(`[Session Restart] All game pages closed. Blank tab kept alive for reconnect.`);
       }
-    }
-    if (!closed) {
-      const port = acctConfig.chrome.remoteDebuggingPort;
-      killChromeByPort(port);
+    } catch (e) {
+      console.error(`[Session Restart] Error closing pages:`, e.message);
     }
     
     // Step 4: Send WhatsApp notification
     const uptimeStr = `${minutes} min`;
     sendWhatsAppNotification(
-      `[SESSION RESTART] Bet module "${acctConfig.label}" restarting after ${uptimeStr} uptime. Browser killed, relaunching...`
+      `[SESSION RESTART] Bet module "${acctConfig.label}" session restart after ${uptimeStr}. Relaunching...`
     ).catch(err => console.error("WhatsApp notification failed:", err.message));
     
-    sessionRestartPending = false;
-    // The existing browser lifecycle loop in initBrowser will detect the closed page and relaunch
+    // The initBrowser loop will detect page.isClosed() and relaunch via launchAccount
   }, ms);
 }
 
@@ -315,6 +287,8 @@ async function initBrowser() {
       isBrowserReady = false;
       browserPage = null;
       browserInstance = null;
+      // Disconnect puppeteer from the browser (Chrome stays alive if session restart)
+      if (browserContext) await browserContext.disconnect().catch(() => {});
     } catch (err) {
       console.error("\x1b[31m[Bet Module] Launch error:\x1b[0m", err.message);
       isBrowserReady = false;

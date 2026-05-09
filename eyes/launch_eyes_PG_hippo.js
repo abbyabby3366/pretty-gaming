@@ -1,38 +1,12 @@
 const puppeteer = require("puppeteer");
 const fs = require("fs");
 const path = require("path");
-const { execSync } = require("child_process");
 require("dotenv").config({ path: path.join(__dirname, '..', '.env') });
 const { getBrowserArgs } = require("../utils/browserArgs");
 const { runEyesPG, stateManager } = require("./runEyesPG");
 const { sendWhatsAppNotification } = require("../utils/whatsapp_notifier");
 
 const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
-
-/**
- * Kill Chrome by its remote debugging port.
- * Uses taskkill on Windows to find and terminate the process that owns the port.
- */
-function killChromeByPort(port) {
-  try {
-    const result = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, { encoding: 'utf-8' });
-    const lines = result.trim().split('\n');
-    const pids = new Set();
-    for (const line of lines) {
-      const parts = line.trim().split(/\s+/);
-      const pid = parts[parts.length - 1];
-      if (pid && /^\d+$/.test(pid) && pid !== '0') pids.add(pid);
-    }
-    for (const pid of pids) {
-      console.log(`[Session Restart] Killing Chrome process PID ${pid}...`);
-      execSync(`taskkill /PID ${pid} /T /F`, { encoding: 'utf-8' });
-    }
-    return true;
-  } catch (e) {
-    console.error(`[Session Restart] Failed to kill Chrome on port ${port}:`, e.message);
-    return false;
-  }
-}
 
 (async () => {
   const accountsPath = path.resolve(__dirname, "json", "eyes_accounts.json");
@@ -55,26 +29,28 @@ function killChromeByPort(port) {
       if (restartMinutes && restartMinutes > 0) {
         console.log(`[Session Restart] Scheduled in ${restartMinutes} minutes for ${acctConfig.label}.`);
         sessionRestartTimer = setTimeout(async () => {
-          console.log(`\x1b[33m[Session Restart] Timer fired for ${acctConfig.label}. Closing browser gracefully...\x1b[0m`);
+          console.log(`\x1b[33m[Session Restart] Timer fired for ${acctConfig.label}. Closing game pages...`);
 
-          // Try graceful close first (avoids stale lock files), fallback to taskkill
-          let closed = false;
-          if (browserContext) {
-            try {
-              await browserContext.close();
-              closed = true;
-              console.log(`[Session Restart] Chrome closed gracefully.`);
-            } catch (e) {
-              console.error(`[Session Restart] Graceful close failed: ${e.message}. Falling back to taskkill...`);
+          // Close all game pages, keep Chrome alive with a blank tab
+          try {
+            if (browserContext) {
+              const blankPage = await browserContext.newPage();
+              await blankPage.goto('about:blank').catch(() => {});
+              
+              const allPages = await browserContext.pages();
+              for (const p of allPages) {
+                if (p !== blankPage) {
+                  await p.close().catch(() => {});
+                }
+              }
+              console.log(`[Session Restart] All game pages closed. Blank tab kept alive for reconnect.`);
             }
-          }
-          if (!closed) {
-            const port = acctConfig.chrome.remoteDebuggingPort;
-            killChromeByPort(port);
+          } catch (e) {
+            console.error(`[Session Restart] Error closing pages:`, e.message);
           }
 
           sendWhatsAppNotification(
-            `[SESSION RESTART] Eyes module "${acctConfig.label}" restarting after ${restartMinutes} min uptime. Browser closed, relaunching...`
+            `[SESSION RESTART] Eyes module "${acctConfig.label}" session restart after ${restartMinutes} min. Relaunching...`
           ).catch(err => console.error("WhatsApp notification failed:", err.message));
         }, restartMinutes * 60 * 1000);
       }
