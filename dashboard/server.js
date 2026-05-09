@@ -398,11 +398,12 @@ function startDashboard(stateManager) {
           }
           
           bet.actualBetAmount = body.betAmount || "-";
+          bet.timer = body.timer != null ? body.timer : null;
           
           if (dbCollection) {
             dbCollection.updateOne(
               { id: bet.id },
-              { $set: { outcome: bet.outcome, actualBetAmount: bet.actualBetAmount, executionState: bet.executionState } }
+              { $set: { outcome: bet.outcome, actualBetAmount: bet.actualBetAmount, executionState: bet.executionState, timer: bet.timer } }
             ).catch(() => {});
           }
         }

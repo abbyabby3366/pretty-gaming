@@ -106,12 +106,14 @@ async function runBetPG() {
         if (result.balance !== undefined && result.balance !== null) {
           latestBalance = result.balance;
         }
+        bet.timer = result.timer != null ? result.timer : null;
       }
       
       const status = success ? "SUCCESS" : "FAILED";
       const amountText = success && bet.actualBetAmount ? ` [Amount: ${bet.actualBetAmount}]` : "";
       const reasonText = success ? "" : ` (Reason: ${reason || "None given"})`;
-      console.log(`[${currentAccountLabel}] ${success ? '✅' : '❌'} Result: ${status}${amountText}${reasonText}`);
+      const timerText = bet.timer != null ? ` [Timer: ${bet.timer}s]` : "";
+      console.log(`[${currentAccountLabel}] ${success ? '✅' : '❌'} Result: ${status}${amountText}${reasonText}${timerText}`);
 
       // Report result to central server
       fetch(`${CENTRAL_URL}/api/telemetry/bet-result`, {
@@ -123,7 +125,8 @@ async function runBetPG() {
           reason: reason,
           betAmount: bet.actualBetAmount,
           tableNumber: bet.tableName,
-          betType: bet.target || bet.betType
+          betType: bet.target || bet.betType,
+          timer: bet.timer
         })
       }).catch(err => {
         console.error(`[${currentAccountLabel}] Failed to report result to central:`, err.message);

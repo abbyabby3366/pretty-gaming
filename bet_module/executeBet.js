@@ -82,6 +82,18 @@ async function executeBetInBrowser(page, betConfig) {
         return true;
       }
 
+      // Helper: read countdown timer from a table container
+      function getTimer(table) {
+        try {
+          const timerDiv = table.querySelector('div.absolute.top-\\[20\\%\\].left-\\[0\\%\\]');
+          if (timerDiv) {
+            const txt = (timerDiv.innerText || timerDiv.textContent || '').trim();
+            if (/^\d+$/.test(txt)) return parseInt(txt, 10);
+          }
+        } catch(e) {}
+        return null;
+      }
+
       // 2. FIND TABLE
       const allTables = document.querySelectorAll(".bg-table");
       let targetTable = null;
@@ -117,7 +129,7 @@ async function executeBetInBrowser(page, betConfig) {
 
       // 3. CHECK NO MORE BETS
       if (isNoMoreBets(targetTable)) {
-        return { success: false, reason: "No more bets accepted" };
+        return { success: false, reason: "No more bets accepted", timer: getTimer(targetTable) };
       }
 
       // 4. FIND BET AREA (with retry - DOM may still be updating after scroll)
@@ -154,7 +166,7 @@ async function executeBetInBrowser(page, betConfig) {
           await new Promise(r => setTimeout(r, 300));
         }
       }
-      if (!targetBetArea) return { success: false, reason: `Bet area not found (looking for "${domLabel}" from betType "${config.betType}")` };
+      if (!targetBetArea) return { success: false, reason: `Bet area not found (looking for "${domLabel}" from betType "${config.betType}")`, timer: getTimer(targetTable) };
 
       function getBalance() {
         try {
@@ -267,10 +279,10 @@ async function executeBetInBrowser(page, betConfig) {
       } catch (e) {}
 
       if (!betConfirmed) {
-        return { success: false, reason: "Betting chip not placed visually", balance: currentBalance };
+        return { success: false, reason: "Betting chip not placed visually", balance: currentBalance, timer: getTimer(targetTable) };
       }
 
-      return { success: true, betAmount: betAmount, balance: currentBalance };
+      return { success: true, betAmount: betAmount, balance: currentBalance, timer: getTimer(targetTable) };
     }, betConfig);
   } catch (err) {
     console.error(`[Bet Module] Puppeteer evaluate error:`, err.message);

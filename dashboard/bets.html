@@ -228,7 +228,10 @@
               <span>Rec: <strong>${b.recommendedBetAmount}</strong></span>
               <span style="${actStyle}">Act: <strong>${actAmountText}</strong></span>
             </div>
-            <div class="${statusCls}" style="font-weight:600;">${b.outcome}</div>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span class="${statusCls}" style="font-weight:600;">${b.outcome}</span>
+              ${b.timer != null ? `<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:rgba(255,255,255,0.06);color:${b.timer >= 5 ? 'var(--green)' : (b.timer >= 3 ? 'var(--yellow)' : 'var(--red)')};font-weight:600;">⏱ ${b.timer}s</span>` : ''}
+            </div>
             ${b.outcome === 'UNPLACED' && b.executionState && b.executionState.reason ? `<div style="font-size:10px;color:var(--dim);margin-top:4px;">${b.executionState.reason}</div>` : ''}
           </td>
           <td>
