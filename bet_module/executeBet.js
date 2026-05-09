@@ -149,7 +149,7 @@ async function executeBetInBrowser(page, betConfig) {
           const areaText = (area.innerText || area.textContent || "").replace(/\s+/g, " ").trim();
           // Exact match OR starts with label followed by a number (odds like 1:1)
           // This prevents "Player" from accidentally matching "Player Pair 11:1"
-          const regex = new RegExp(`^${domLabel}(\\s+\\d.*)?$`, 'i');
+          const regex = new RegExp(`^${domLabel}(\\s*\\d.*)?$`, 'i');
           if (regex.test(areaText)) {
             return area;
           }

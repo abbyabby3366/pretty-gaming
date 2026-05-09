@@ -37,7 +37,7 @@ const ROOT = path.join(__dirname, "..");
 let _stateManager = null;
 const betLog = [];
 const centralBetQueue = [];
-const MAX_BET_LOG = 200;
+const MAX_BET_LOG = 1000;
 
 // Track active bet modules via heartbeat
 const activeModules = new Map(); // moduleId -> { moduleId, baseUrl, lastHeartbeat, label, isBusy, busySince }
