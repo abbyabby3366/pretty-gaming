@@ -45,6 +45,9 @@
     .reason-row {display:none;background:#0d1117;}
     .reason-row.active {display:table-row;}
     .reason-content {padding:10px;font-size:10px;color:var(--dim);white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto;border:1px solid rgba(255,255,255,0.05);border-radius:4px;background:#0a0c10;}
+    .reason-truncate {font-size:10px;color:var(--dim);margin-top:4px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;transition:all 0.2s;}
+    .reason-truncate:hover {color:var(--cyan);}
+    .reason-truncate.expanded {white-space:normal;overflow:visible;text-overflow:unset;max-width:none;}
 
     .modules-panel { padding: 12px; background: #0d1117; border-bottom: 1px solid var(--border); display: flex; gap: 12px; flex-wrap: wrap; }
     .module-card { background: var(--card); border: 1px solid var(--border); padding: 8px 12px; border-radius: 6px; min-width: 200px; }
@@ -232,7 +235,7 @@
               <span class="${statusCls}" style="font-weight:600;">${b.outcome}</span>
               ${b.timer != null ? `<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:rgba(255,255,255,0.06);color:${b.timer >= 5 ? 'var(--green)' : (b.timer >= 3 ? 'var(--yellow)' : 'var(--red)')};font-weight:600;">⏱ ${b.timer}s</span>` : ''}
             </div>
-            ${b.outcome === 'UNPLACED' && b.executionState && b.executionState.reason ? `<div style="font-size:10px;color:var(--dim);margin-top:4px;">${b.executionState.reason}</div>` : ''}
+            ${(b.outcome === 'UNPLACED' || b.outcome === 'NETWORK_ERROR') && b.executionState && b.executionState.reason ? `<div onclick="this.classList.toggle('expanded')" class="reason-truncate" title="Click to expand">${b.executionState.reason}</div>` : ''}
           </td>
           <td>
             <div style="font-weight:600;font-size:14px;color:${b.roundOutcome==='UNKNOWN'?'var(--dim)':(b.roundOutcome==='WAITING'?'var(--yellow)':'var(--purple)')}">${b.roundOutcome}</div>
@@ -393,14 +396,13 @@
           modHtml = '<div style="color:var(--dim);">No Bet Modules Connected. Start a module to accept bets.</div>';
         } else {
           for (const m of modules) {
-            const isOnline = (now - m.lastHeartbeat) < 35000;
-            const dotClass = isOnline ? 'status-online' : 'status-offline';
+            // Server only sends live modules (stale ones are purged server-side)
             let acctHtml = '';
             if (m.accounts && m.accounts.length > 0) {
               for (const a of m.accounts) {
                  const isReady = a.isAcceptingBets;
                  let readyColor = isReady ? 'var(--green)' : 'var(--yellow)';
-                 let readyText = isReady ? 'READY' : (isOnline ? 'LAUNCHING' : 'OFFLINE');
+                 let readyText = isReady ? 'READY' : 'LAUNCHING';
 
                  if (isReady && a.balance != null) {
                     const cleanBalance = String(a.balance).replace(/[^0-9.]/g, '');
@@ -435,7 +437,7 @@
               <div class="module-card">
                 <div class="m-title">
                   <span>${headerLabel}</span>
-                  <span class="status-dot ${dotClass}" title="Last seen ${Math.round((now - m.lastHeartbeat)/1000)}s ago"></span>
+                  <span class="status-dot status-online" title="Last seen ${Math.round((now - m.lastHeartbeat)/1000)}s ago"></span>
                 </div>
                 <div class="m-url" style="display:flex; justify-content:flex-end; gap:12px; margin-bottom:4px;">
                   <span style="color:${profitColorToday}; font-weight:600;" title="Today's P/L (Since 12 PM)">Today: ${profitSignToday}${profitToday.toFixed(2)}</span>

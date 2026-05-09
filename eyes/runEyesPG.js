@@ -11,7 +11,9 @@ const MAX_EVENT_LOG = 100;
 
 // ─── State Persistence ───────────────────────────────────────────────────
 
-const STATE_FILE = path.join(__dirname, "json", "eyes_state.json");
+const STATE_DIR = path.join(__dirname, "json");
+fs.mkdirSync(STATE_DIR, { recursive: true });
+const STATE_FILE = path.join(STATE_DIR, "eyes_state.json");
 
 function loadState() {
   try {

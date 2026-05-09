@@ -182,6 +182,14 @@ async function executeBetInBrowser(page, betConfig) {
 
       let balanceBefore = getBalance();
 
+      // 4.5 PRE-FLIGHT BALANCE CHECK
+      if (balanceBefore != null && config.targetAmount && config.targetAmount !== "ALL_IN") {
+        let requiredAmount = parseInt(config.targetAmount, 10);
+        if (!isNaN(requiredAmount) && balanceBefore < requiredAmount) {
+          return { success: false, reason: `Insufficient balance (have ${balanceBefore}, need ${requiredAmount})`, balance: String(balanceBefore), timer: getTimer(targetTable) };
+        }
+      }
+
       // 5. EXECUTE BETS
       const chipSelectDelay = Math.min(config.betPlacementDelayMs || 120, 200); // cap chip select delay
       const areaClickDelay = Math.min(config.betPlacementDelayMs || 120, 150);  // area clicks can be faster

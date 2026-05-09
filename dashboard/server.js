@@ -42,6 +42,21 @@ const MAX_BET_LOG = 200;
 const activeModules = new Map(); // moduleId -> { moduleId, baseUrl, lastHeartbeat, label }
 const cumulativeProfitMap = {}; // keyed by moduleId (stable)
 const todayProfitMap = {};       // keyed by moduleId (stable)
+const STALE_THRESHOLD_MS = 35000;
+
+// Periodically purge stale modules and send WhatsApp alerts
+setInterval(() => {
+  const now = Date.now();
+  for (const [moduleId, m] of activeModules) {
+    if (now - m.lastHeartbeat >= STALE_THRESHOLD_MS) {
+      const label = (m.accounts && m.accounts[0] && m.accounts[0].label) || m.label || moduleId;
+      console.log(`\x1b[31m[Central] Module ${label} (${moduleId}) went stale — removing.\x1b[0m`);
+      activeModules.delete(moduleId);
+      sendWhatsAppNotification(`[ALERT] Bet module "${label}" (${moduleId}) went offline — no heartbeat for ${Math.round(STALE_THRESHOLD_MS / 1000)}s.`)
+        .catch(err => console.error("WhatsApp notification failed:", err.message));
+    }
+  }
+}, 10000);
 
 function getTodayStart() {
   const now = new Date();
@@ -363,6 +378,13 @@ function startDashboard(stateManager) {
         }).catch(err => {
           console.error("[Central] Failed to dispatch bet:", err.message);
           betEntry.outcome = "NETWORK_ERROR";
+          betEntry.executionState = { status: "NETWORK_ERROR", reason: err.message };
+          if (dbCollection) {
+            dbCollection.updateOne(
+              { id: betEntry.id },
+              { $set: { outcome: betEntry.outcome, executionState: betEntry.executionState } }
+            ).catch(() => {});
+          }
         });
 
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -583,18 +605,21 @@ function startDashboard(stateManager) {
         lastUpdated = stats.mtime.toISOString();
       } catch (e) {}
 
+      // Only return modules that are still alive (stale ones are already purged by the cleanup interval)
+      const onlineModules = Array.from(activeModules.values()).map(m => {
+        const mid = m.moduleId;
+        return {
+          ...m,
+          cumulativeProfit: cumulativeProfitMap[mid] || 0,
+          todayProfit: todayProfitMap[mid] || 0
+        };
+      });
+
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ 
         ok: true, 
         betLog, 
-        activeModules: Array.from(activeModules.values()).map(m => {
-           const mid = m.moduleId;
-           return {
-             ...m,
-             cumulativeProfit: cumulativeProfitMap[mid] || 0,
-             todayProfit: todayProfitMap[mid] || 0
-           };
-        }),
+        activeModules: onlineModules,
         lastUpdated
       }));
       return;

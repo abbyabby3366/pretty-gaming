@@ -1,0 +1,15 @@
+[
+  {
+    "label": "PG Eyes Winbox",
+    "platform": "winbox",
+    "launchMethod": "connect",
+    "enableDomCleanup": true,
+    "profileIndex": 2,
+    "debuggingPort": 9223,
+    "run": true,
+    "credentials": {
+      "email": "YOUR_EMAIL",
+      "password": "YOUR_PASSWORD"
+    }
+  }
+]
