@@ -155,7 +155,18 @@ function processCentralQueue() {
   if (centralBetQueue.length === 0) return;
   
   const targetResult = resolveBetModuleTarget();
-  if (!targetResult) return; // no available modules right now
+  if (!targetResult) {
+    // Debug logging to understand why targetResult is null
+    const now = Date.now();
+    console.log(`[Central] processCentralQueue: No target found! Queue length: ${centralBetQueue.length}. Active modules: ${activeModules.size}`);
+    for (const [id, m] of activeModules) {
+      console.log(` - Module ${id}: isBusy=${m.isBusy}, heartbeatAge=${now - m.lastHeartbeat}ms, accounts=${m.accounts?m.accounts.length:0}`);
+      if (m.accounts && m.accounts.length > 0) {
+         console.log(`   - Acc[0]: isAcceptingBets=${m.accounts[0].isAcceptingBets}, balance=${m.accounts[0].balance}`);
+      }
+    }
+    return; // no available modules right now
+  }
 
   const betEntry = centralBetQueue.shift();
   const targetModuleId = targetResult.moduleId;
@@ -238,6 +249,13 @@ function startDashboard(stateManager) {
       
       const recentBets = await dbCollection.find().sort({ time: -1 }).limit(MAX_BET_LOG).toArray();
       for (const b of recentBets) {
+        // If a bet was queued or pending when the server died/restarted, it's stale now.
+        if (b.outcome === "QUEUED" || b.outcome === "PENDING") {
+          b.outcome = "CANCELLED";
+          b.executionState = { status: "CANCELLED", reason: "Server restarted" };
+          dbCollection.updateOne({ id: b.id }, { $set: { outcome: b.outcome, executionState: b.executionState } }).catch(() => {});
+        }
+        
         if (!betLog.find(existing => existing.id === b.id)) betLog.push(b);
       }
       betLog.sort((a, b) => new Date(b.time) - new Date(a.time));
