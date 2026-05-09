@@ -352,7 +352,7 @@ async function runEyesPG(page, extractorCode, acctConfig) {
       consecutiveErrors = 0;
 
       // duration tracking
-      const interval = process.env.SCRAPE_INTERVAL ? parseInt(process.env.SCRAPE_INTERVAL) : 500;
+      const interval = process.env.SCRAPE_INTERVAL_IN_MS ? parseInt(process.env.SCRAPE_INTERVAL_IN_MS) : 1000;
       const elapsed = Date.now() - startTime;
       if (elapsed < interval) {
         await new Promise(r => setTimeout(r, interval - elapsed));

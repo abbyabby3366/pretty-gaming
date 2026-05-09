@@ -1,10 +1,12 @@
 const http = require("http");
 const crypto = require("crypto");
 const path = require("path");
+const { execSync } = require("child_process");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
 const { cleanUpDOM } = require("../utils/cleanUpDOM");
 const { executeBetInBrowser } = require("./executeBet");
+const { sendWhatsAppNotification } = require("../utils/whatsapp_notifier");
 
 const os = require("os");
 
@@ -21,6 +23,9 @@ let isBrowserReady = false;
 let browserPage = null;
 let domCleanupInterval = null;
 let latestBalance = null;
+let sessionRestartPending = false;
+let isBetInProgress = false;
+let sessionRestartTimer = null;
 
 const initialAccountsPath = path.resolve(__dirname, "json", "bet_accounts.json");
 const initialAcctConfig = buildAccountConfig(ACCOUNT_INDEX, initialAccountsPath);
@@ -83,6 +88,8 @@ async function runBetPG() {
       let success = false;
       let reason = "Unknown error";
       
+      isBetInProgress = true;
+      
       if (!isBrowserReady || !browserPage) {
         reason = "Browser not ready for bet";
         console.error(`[Bet Module] ${reason}.`);
@@ -108,6 +115,8 @@ async function runBetPG() {
         }
         bet.timer = result.timer != null ? result.timer : null;
       }
+      
+      isBetInProgress = false;
       
       const status = success ? "SUCCESS" : "FAILED";
       const amountText = success && bet.actualBetAmount ? ` [Amount: ${bet.actualBetAmount}]` : "";
@@ -160,6 +169,86 @@ const server = http.createServer(async (req, res) => {
   res.end("Not found");
 });
 
+/**
+ * Kill Chrome by its remote debugging port.
+ * Uses taskkill on Windows to find and terminate the process that owns the port.
+ */
+function killChromeByPort(port) {
+  try {
+    // Find the PID listening on the debugging port
+    const result = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, { encoding: 'utf-8' });
+    const lines = result.trim().split('\n');
+    const pids = new Set();
+    for (const line of lines) {
+      const parts = line.trim().split(/\s+/);
+      const pid = parts[parts.length - 1];
+      if (pid && /^\d+$/.test(pid) && pid !== '0') pids.add(pid);
+    }
+    for (const pid of pids) {
+      console.log(`[Session Restart] Killing Chrome process PID ${pid}...`);
+      execSync(`taskkill /PID ${pid} /T /F`, { encoding: 'utf-8' });
+    }
+    return true;
+  } catch (e) {
+    console.error(`[Session Restart] Failed to kill Chrome on port ${port}:`, e.message);
+    return false;
+  }
+}
+
+/**
+ * Schedules a session restart after the configured number of minutes.
+ * For the bet module, it:
+ * 1. Immediately sets isBrowserReady = false so central won't route new bets
+ * 2. Waits for any in-progress bet to complete
+ * 3. Kills the Chrome browser process
+ * 4. Sends a WhatsApp notification
+ * The existing browser lifecycle loop then auto-relaunches.
+ */
+function scheduleSessionRestart(acctConfig) {
+  const minutes = acctConfig.sessionRestartMinutes;
+  if (!minutes || minutes <= 0) return;
+  
+  // Clear any existing timer
+  if (sessionRestartTimer) clearTimeout(sessionRestartTimer);
+  
+  const ms = minutes * 60 * 1000;
+  console.log(`[Session Restart] Scheduled in ${minutes} minutes for ${acctConfig.label}.`);
+  
+  sessionRestartTimer = setTimeout(async () => {
+    console.log(`\x1b[33m[Session Restart] Timer fired for ${acctConfig.label}. Initiating graceful restart...\x1b[0m`);
+    
+    // Step 1: Stop accepting new bets immediately
+    isBrowserReady = false;
+    sessionRestartPending = true;
+    sendHeartbeat(); // Immediately notify central that isAcceptingBets is now false
+    
+    // Step 2: Wait for any in-progress bet to complete
+    const maxWaitMs = 60000; // Max 60s to wait for a bet to finish
+    const startWait = Date.now();
+    while (isBetInProgress && (Date.now() - startWait < maxWaitMs)) {
+      console.log(`[Session Restart] Waiting for current bet to finish...`);
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    if (isBetInProgress) {
+      console.log(`\x1b[31m[Session Restart] Bet still in progress after ${maxWaitMs / 1000}s, forcing restart anyway.\x1b[0m`);
+    }
+    
+    // Step 3: Kill Chrome
+    const port = acctConfig.chrome.remoteDebuggingPort;
+    console.log(`[Session Restart] Killing Chrome on debugging port ${port}...`);
+    killChromeByPort(port);
+    
+    // Step 4: Send WhatsApp notification
+    const uptimeStr = `${minutes} min`;
+    sendWhatsAppNotification(
+      `[SESSION RESTART] Bet module "${acctConfig.label}" restarting after ${uptimeStr} uptime. Browser killed, relaunching...`
+    ).catch(err => console.error("WhatsApp notification failed:", err.message));
+    
+    sessionRestartPending = false;
+    // The existing browser lifecycle loop in initBrowser will detect the closed page and relaunch
+  }, ms);
+}
+
 async function initBrowser() {
   const accountsPath = path.resolve(__dirname, "json", "bet_accounts.json");
   
@@ -191,6 +280,9 @@ async function initBrowser() {
         }, 5000);
       }
       
+      // Schedule session restart if configured
+      scheduleSessionRestart(acctConfig);
+      
       // Wait until browser closes
       while (!page.isClosed()) {
          await new Promise(r => setTimeout(r, 2000));
@@ -199,6 +291,10 @@ async function initBrowser() {
       if (domCleanupInterval) {
         clearInterval(domCleanupInterval);
         domCleanupInterval = null;
+      }
+      if (sessionRestartTimer) {
+        clearTimeout(sessionRestartTimer);
+        sessionRestartTimer = null;
       }
       
       console.log(`\x1b[31m[Bet Module] Browser closed or crashed. Relaunching...\x1b[0m`);
@@ -211,6 +307,10 @@ async function initBrowser() {
       if (domCleanupInterval) {
         clearInterval(domCleanupInterval);
         domCleanupInterval = null;
+      }
+      if (sessionRestartTimer) {
+        clearTimeout(sessionRestartTimer);
+        sessionRestartTimer = null;
       }
       if (browserContext) await browserContext.disconnect().catch(() => {});
       await new Promise(r => setTimeout(r, 5000));

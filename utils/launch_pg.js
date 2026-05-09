@@ -62,6 +62,7 @@ function buildAccountConfig(accountIndex = 0, accountsFilePath) {
     platform,
     launchMethod,
     enableDomCleanup: account.enableDomCleanup ?? false,
+    sessionRestartMinutes: account.sessionRestartMinutes || 0,
     chrome: {
       executablePath: process.env.CHROME_EXECUTABLE_PATH || "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
       userDataDir: process.env.CHROME_USER_DATA_DIR 
