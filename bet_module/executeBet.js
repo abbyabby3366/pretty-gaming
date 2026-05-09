@@ -237,18 +237,29 @@ async function executeBetInBrowser(page, betConfig) {
           await new Promise(resolve => setTimeout(resolve, 200));
         }
 
+        // Re-query bet area fresh — placing a chip can cause the platform to
+        // re-render the bet area DOM, detaching the original reference.
+        // Clicking a detached node is silently ignored by the browser.
+        const currentBetArea = findBetArea();
+        if (!currentBetArea) {
+          return { success: false, reason: `Bet area lost after chip selection (DOM re-rendered)`, timer: getTimer(targetTable) };
+        }
+
         // Click target area 'times' times
         for (let t = 0; t < clickCmd.times; t++) {
           // Bail early if no more bets appeared between clicks
           if (isNoMoreBets(targetTable)) {
             break;
           }
-          targetBetArea.click();
+          currentBetArea.click();
           if (t < clickCmd.times - 1) {
             // Delay between repeated clicks of same chip (not after the last one)
             await new Promise(resolve => setTimeout(resolve, areaClickDelay));
           }
         }
+
+        // Small settle between chip commands to let the DOM update after placement
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
 
       // Small settle after all clicks before verification

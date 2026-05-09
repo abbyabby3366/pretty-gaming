@@ -6,6 +6,7 @@
     "enableDomCleanup": false,
     "profileIndex": 12,
     "debuggingPort": 12323,
+    "sessionRestartMinutes": 120,
     "run": true,
     "credentials": {
       "email": "YOUR_EMAIL",
