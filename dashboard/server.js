@@ -36,10 +36,11 @@ const ROOT = path.join(__dirname, "..");
 
 let _stateManager = null;
 const betLog = [];
+const centralBetQueue = [];
 const MAX_BET_LOG = 200;
 
 // Track active bet modules via heartbeat
-const activeModules = new Map(); // moduleId -> { moduleId, baseUrl, lastHeartbeat, label }
+const activeModules = new Map(); // moduleId -> { moduleId, baseUrl, lastHeartbeat, label, isBusy, busySince }
 const cumulativeProfitMap = {}; // keyed by moduleId (stable)
 const todayProfitMap = {};       // keyed by moduleId (stable)
 const STALE_THRESHOLD_MS = 35000;
@@ -75,8 +76,15 @@ let lastUsedModuleId = null;      // track which module was last dispatched to
 
 function resolveBetModuleTarget() {
   const now = Date.now();
-  // Filter modules that sent a heartbeat in the last 35 seconds
-  let online = Array.from(activeModules.values()).filter(m => now - m.lastHeartbeat < 35000);
+  // Filter modules that sent a heartbeat in the last 35 seconds AND are not busy
+  let online = Array.from(activeModules.values()).filter(m => {
+    // Timeout stuck busy modules (e.g. > 60s)
+    if (m.isBusy && m.busySince && now - m.busySince > 60000) {
+      m.isBusy = false;
+      m.busySince = null;
+    }
+    return now - m.lastHeartbeat < 35000 && !m.isBusy;
+  });
   
   if (betConfig.minAccountBalance != null && betConfig.minAccountBalance > 0) {
     online = online.filter(m => {
@@ -141,6 +149,64 @@ function resolveBetModuleTarget() {
   const fallback = online[0];
   lastUsedModuleId = fallback.moduleId;
   return { baseUrl: fallback.baseUrl, moduleId: fallback.moduleId };
+}
+
+function processCentralQueue() {
+  if (centralBetQueue.length === 0) return;
+  
+  const targetResult = resolveBetModuleTarget();
+  if (!targetResult) return; // no available modules right now
+
+  const betEntry = centralBetQueue.shift();
+  const targetModuleId = targetResult.moduleId;
+  const targetBaseUrl = targetResult.baseUrl;
+  
+  const mod = activeModules.get(targetModuleId);
+  if (mod) {
+    mod.isBusy = true;
+    mod.busySince = Date.now();
+  }
+
+  let targetModuleLabel = mod && mod.label ? mod.label : targetModuleId;
+  if (mod && mod.accounts && mod.accounts.length > 0 && mod.accounts[0].label) {
+    targetModuleLabel = mod.accounts[0].label;
+  }
+
+  betEntry.targetModuleId = targetModuleId;
+  betEntry.targetModule = targetModuleLabel;
+  betEntry.outcome = "PENDING";
+
+  if (dbCollection) {
+    dbCollection.updateOne(
+      { id: betEntry.id },
+      { $set: { targetModuleId: betEntry.targetModuleId, targetModule: betEntry.targetModule, outcome: betEntry.outcome } }
+    ).catch(() => {});
+  }
+
+  fetch(targetBaseUrl + "/prettygaming/bet", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(betEntry)
+  }).catch(err => {
+    console.error("[Central] Failed to dispatch bet:", err.message);
+    betEntry.outcome = "NETWORK_ERROR";
+    betEntry.executionState = { status: "NETWORK_ERROR", reason: err.message };
+    if (mod) {
+      mod.isBusy = false;
+      mod.busySince = null;
+    }
+    if (dbCollection) {
+      dbCollection.updateOne(
+        { id: betEntry.id },
+        { $set: { outcome: betEntry.outcome, executionState: betEntry.executionState } }
+      ).catch(() => {});
+    }
+    processCentralQueue(); // try next bet
+  });
+  
+  if (centralBetQueue.length > 0) {
+    processCentralQueue();
+  }
 }
 
 function parseJSONBody(req) {
@@ -208,13 +274,19 @@ function startDashboard(stateManager) {
       try {
         const body = await parseJSONBody(req);
         if (body.moduleId && body.baseUrl) {
+          const existing = activeModules.get(body.moduleId);
           activeModules.set(body.moduleId, {
             moduleId: body.moduleId,
             baseUrl: body.baseUrl,
             label: body.label || body.moduleId,
             accounts: body.accounts || [],
-            lastHeartbeat: Date.now()
+            lastHeartbeat: Date.now(),
+            isBusy: existing ? existing.isBusy : false,
+            busySince: existing ? existing.busySince : null
           });
+          
+          // If any bets are queued, try to process them now that a module is checking in
+          processCentralQueue();
         }
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: true }));
@@ -294,9 +366,6 @@ function startDashboard(stateManager) {
           }
         }
 
-        const targetResult = resolveBetModuleTarget();
-        const targetBaseUrl = targetResult ? targetResult.baseUrl : null;
-        const targetModuleId = targetResult ? targetResult.moduleId : null;
         const betId = body.uuid || ("bet_" + Date.now() + "_" + Math.random().toString(36).substr(2, 5));
         
         let payout = 1;
@@ -319,18 +388,6 @@ function startDashboard(stateManager) {
            if (amount < betConfig.rounding && amount > 0) amount = betConfig.rounding;
            recommendedBetAmount = amount;
         }
-        
-        // Resolve human-readable label for display
-        let targetModuleLabel = "NONE";
-        if (targetModuleId) {
-           const mod = activeModules.get(targetModuleId);
-           if (mod) {
-             targetModuleLabel = mod.label || targetModuleId;
-             if (mod.accounts && mod.accounts.length > 0 && mod.accounts[0].label) {
-               targetModuleLabel = mod.accounts[0].label;
-             }
-           }
-        }
 
         const betEntry = {
           id: betId,
@@ -339,12 +396,12 @@ function startDashboard(stateManager) {
           round: body.ocr?.roundNumber,
           target: bestTarget,
           ev: bestEv,
-          targetModuleId: targetModuleId || null,
-          targetModule: targetModuleLabel,
+          targetModuleId: null,
+          targetModule: "NONE",
           reasonState: body,
           executionState: null,
           outcomeState: null,
-          outcome: !betConfig.autoBetEnabled ? "AUTOBET_OFF" : (targetBaseUrl ? "PENDING" : "NO_MODULES_ONLINE"),
+          outcome: !betConfig.autoBetEnabled ? "AUTOBET_OFF" : "QUEUED",
           recommendedBetAmount: recommendedBetAmount,
           actualBetAmount: "-",
           roundOutcome: "WAITING",
@@ -364,31 +421,11 @@ function startDashboard(stateManager) {
           return;
         }
 
-        if (!targetBaseUrl) {
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ ok: true, action: "QUEUED", reason: "No active bet modules", betId }));
-          return;
-        }
-
-        // Send to bet module
-        fetch(targetBaseUrl + "/prettygaming/bet", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(betEntry)
-        }).catch(err => {
-          console.error("[Central] Failed to dispatch bet:", err.message);
-          betEntry.outcome = "NETWORK_ERROR";
-          betEntry.executionState = { status: "NETWORK_ERROR", reason: err.message };
-          if (dbCollection) {
-            dbCollection.updateOne(
-              { id: betEntry.id },
-              { $set: { outcome: betEntry.outcome, executionState: betEntry.executionState } }
-            ).catch(() => {});
-          }
-        });
+        centralBetQueue.push(betEntry);
+        processCentralQueue();
 
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true, action: "DISPATCHED", betId }));
+        res.end(JSON.stringify({ ok: true, action: "QUEUED_CENTRALLY", betId }));
       } catch (e) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: false, error: e.message }));
@@ -428,6 +465,16 @@ function startDashboard(stateManager) {
               { $set: { outcome: bet.outcome, actualBetAmount: bet.actualBetAmount, executionState: bet.executionState, timer: bet.timer } }
             ).catch(() => {});
           }
+          
+          if (bet.targetModuleId) {
+            const mod = activeModules.get(bet.targetModuleId);
+            if (mod) {
+              mod.isBusy = false;
+              mod.busySince = null;
+            }
+          }
+          
+          processCentralQueue();
         }
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: true }));
