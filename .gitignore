@@ -5,8 +5,11 @@ baccarat_analyzer_v3/target/
 
 # Runtime-generated files
 scrape_log.txt
-tables_state.json
-eyes_state.json
+
+# Runtime JSON state (eyes & bet modules)
+eyes/json/
+bet_module/json/
+utils/login_timestamps.json
 
 # Environment (contains local config)
 .env

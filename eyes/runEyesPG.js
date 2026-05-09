@@ -11,7 +11,7 @@ const MAX_EVENT_LOG = 100;
 
 // ─── State Persistence ───────────────────────────────────────────────────
 
-const STATE_FILE = path.join(__dirname, "..", "eyes_state.json");
+const STATE_FILE = path.join(__dirname, "json", "eyes_state.json");
 
 function loadState() {
   try {
@@ -238,7 +238,7 @@ function writeStateJson(tables, timestamp, events, allScrapedTables = [], ignore
   }));
 
   fs.writeFileSync(
-    path.join(__dirname, "..", "tables_state.json"),
+    path.join(__dirname, "json", "tables_state.json"),
     JSON.stringify(
       {
         timestamp,

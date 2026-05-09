@@ -6,10 +6,15 @@ const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
 const { cleanUpDOM } = require("../utils/cleanUpDOM");
 const { executeBetInBrowser } = require("./executeBet");
 
+const os = require("os");
+
 const PORT = parseInt(process.env.BET_PORT || "4001", 10);
 const CENTRAL_URL = process.env.CENTRAL_URL || "http://127.0.0.1:3456";
-const MODULE_ID = "bet-module-" + PORT;
 const BASE_URL = process.env.BET_MODULE_BASE_URL || `http://127.0.0.1:${PORT}`;
+// MODULE_ID must be globally unique across machines. Derive from BASE_URL so
+// two computers both using port 4001 don't collide in the dashboard's Map.
+const MODULE_ID = process.env.MODULE_ID || `bet-${os.hostname()}-${PORT}`;
+const ACCOUNT_INDEX = parseInt(process.env.ACCOUNT_INDEX || "0", 10);
 
 const betQueue = [];
 let isBrowserReady = false;
@@ -18,7 +23,7 @@ let domCleanupInterval = null;
 let latestBalance = null;
 
 const initialAccountsPath = path.resolve(__dirname, "json", "bet_accounts.json");
-const initialAcctConfig = buildAccountConfig(0, initialAccountsPath);
+const initialAcctConfig = buildAccountConfig(ACCOUNT_INDEX, initialAccountsPath);
 let currentModuleLabel = `Node (${initialAcctConfig.platform})`;
 let currentAccountLabel = initialAcctConfig.label || `Account_${PORT}`;
 
@@ -158,11 +163,10 @@ async function initBrowser() {
   while (true) {
     let browserContext = null;
     try {
-      // 0 maps to the Winbox config we created earlier
-      const acctConfig = buildAccountConfig(0, accountsPath); 
+      const acctConfig = buildAccountConfig(ACCOUNT_INDEX, accountsPath); 
       currentModuleLabel = `Node (${acctConfig.platform})`;
       currentAccountLabel = acctConfig.label || `Account_${PORT}`;
-      console.log(`\n[Bet Module] Starting browser launch sequence for ${currentAccountLabel}...`);
+      console.log(`\n[Bet Module] Starting browser launch sequence for ${currentAccountLabel} (Account Index: ${ACCOUNT_INDEX})...`);
       
       const { browser, page } = await launchAccount(acctConfig);
       browserContext = browser;
@@ -211,8 +215,16 @@ async function initBrowser() {
   }
 }
 
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\x1b[31m[Bet Module] FATAL: Port ${PORT} is already in use. Set a unique BET_PORT env var for each module instance.\x1b[0m`);
+    process.exit(1);
+  }
+  throw err;
+});
+
 server.listen(PORT, () => {
-  console.log(`[Bet Module] 🟢 Online on ${BASE_URL} | Targeting Central: ${CENTRAL_URL}`);
+  console.log(`[Bet Module] 🟢 Online on ${BASE_URL} | Account Index: ${ACCOUNT_INDEX} | Targeting Central: ${CENTRAL_URL}`);
   setInterval(sendHeartbeat, 10000);
   setInterval(updateBalance, 5000); // Check balance periodically
   sendHeartbeat(); // initial heartbeat

@@ -14,5 +14,5 @@ description = "Run the Central Dashboard server"
 run = "node dashboard/server.js"
 
 [tasks.bet]
-description = "Run the simulated Bet Module"
-run = "node bet_module/server.js"
+description = "Launch all bet module accounts (run: true in bet_accounts.json)"
+run = "node bet_module/launcher.js"

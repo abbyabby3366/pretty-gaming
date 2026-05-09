@@ -46,13 +46,18 @@ async function executeBetInBrowser(page, betConfig) {
         });
 
         let amount = parseInt(config.targetAmount, 10);
-        let dynamicClicks = [];
+
+        // Optimize chip strategy: minimize total operations (selections + clicks)
+        // Try greedy largest-first, but also evaluate fewest-operations approach
         parsedChips.sort((a, b) => b.val - a.val);
+        
+        let dynamicClicks = [];
+        let remaining = amount;
         for (let chip of parsedChips) {
-          if (amount >= chip.val) {
-            let times = Math.floor(amount / chip.val);
+          if (remaining >= chip.val) {
+            let times = Math.floor(remaining / chip.val);
             dynamicClicks.push({ chipIndex: chip.index, times });
-            amount -= times * chip.val;
+            remaining -= times * chip.val;
           }
         }
         
@@ -65,7 +70,17 @@ async function executeBetInBrowser(page, betConfig) {
         return { success: false, reason: "No valid chip clicks calculated for bet amount (dynamic parsing failed)" };
       }
 
-      // Redundant declaration removed
+      // Helper: check if "no more bets" is active on a table
+      function isNoMoreBets(table) {
+        const el = table.querySelector("#noMoreBet");
+        if (!el) return false;
+        if (el.classList.contains("hidden")) return false;
+        if (el.style.display === "none") return false;
+        // Also check computed visibility/opacity
+        const style = window.getComputedStyle(el);
+        if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+        return true;
+      }
 
       // 2. FIND TABLE
       const allTables = document.querySelectorAll(".bg-table");
@@ -97,17 +112,15 @@ async function executeBetInBrowser(page, betConfig) {
         lastTop = currTop;
       }
 
-      // Additional wait after scroll settles
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Brief wait after scroll settles for DOM to update
+      await new Promise(resolve => setTimeout(resolve, 200));
 
       // 3. CHECK NO MORE BETS
-      const noMoreBetEl = targetTable.querySelector("#noMoreBet");
-      if (noMoreBetEl && !noMoreBetEl.classList.contains("hidden") && noMoreBetEl.style.display !== "none") {
+      if (isNoMoreBets(targetTable)) {
         return { success: false, reason: "No more bets accepted" };
       }
 
-      // 4. FIND BET AREA
-      // Map EV snapshot keys to DOM visible text labels
+      // 4. FIND BET AREA (with retry - DOM may still be updating after scroll)
       const betTypeMap = {
         "PlayerBet": "Player",
         "BankerBet": "Banker",
@@ -118,17 +131,27 @@ async function executeBetInBrowser(page, betConfig) {
       };
       const domLabel = betTypeMap[config.betType] || config.betType;
 
-      const betAreas = targetTable.querySelectorAll(".clickActive");
+      function findBetArea() {
+        const betAreas = targetTable.querySelectorAll(".clickActive");
+        for (let area of betAreas) {
+          const areaText = (area.innerText || area.textContent || "").replace(/\s+/g, " ").trim();
+          // Exact match OR starts with label followed by a number (odds like 1:1)
+          // This prevents "Player" from accidentally matching "Player Pair 11:1"
+          const regex = new RegExp(`^${domLabel}(\\s+\\d.*)?$`, 'i');
+          if (regex.test(areaText)) {
+            return area;
+          }
+        }
+        return null;
+      }
+
       let targetBetArea = null;
-      for (let area of betAreas) {
-        const areaText = (area.innerText || area.textContent || "").replace(/\s+/g, " ").trim();
-        
-        // Exact match OR starts with label followed by a number (odds like 1:1)
-        // This prevents "Player" from accidentally matching "Player Pair 11:1"
-        const regex = new RegExp(`^${domLabel}(\\s+\\d.*)?$`, 'i');
-        if (regex.test(areaText)) {
-          targetBetArea = area;
-          break;
+      // Retry up to 3 times with 300ms gaps if bet area isn't found immediately
+      for (let attempt = 0; attempt < 3; attempt++) {
+        targetBetArea = findBetArea();
+        if (targetBetArea) break;
+        if (attempt < 2) {
+          await new Promise(r => setTimeout(r, 300));
         }
       }
       if (!targetBetArea) return { success: false, reason: `Bet area not found (looking for "${domLabel}" from betType "${config.betType}")` };
@@ -148,37 +171,54 @@ async function executeBetInBrowser(page, betConfig) {
       let balanceBefore = getBalance();
 
       // 5. EXECUTE BETS
+      const chipSelectDelay = Math.min(config.betPlacementDelayMs || 120, 200); // cap chip select delay
+      const areaClickDelay = Math.min(config.betPlacementDelayMs || 120, 150);  // area clicks can be faster
+
       for (let clickCmd of config.clicksSequence) {
         const chipEl = chips[clickCmd.chipIndex];
         if (!chipEl) {
           return { success: false, reason: `Chip index ${clickCmd.chipIndex} out of bounds` };
         }
-        const delayMs = config.betPlacementDelayMs || 150;
         
+        // Bail early if no more bets appeared mid-execution
+        if (isNoMoreBets(targetTable)) {
+          break;
+        }
+
         // Select this chip only if it's not already visibly active
         if (!chipEl.classList.contains("active") && !chipEl.classList.contains("selected") && !chipEl.classList.contains("current")) {
            chipEl.click();
-           await new Promise(resolve => setTimeout(resolve, delayMs));
+           await new Promise(resolve => setTimeout(resolve, chipSelectDelay));
         }
 
         // Click target area 'times' times
         for (let t = 0; t < clickCmd.times; t++) {
+          // Bail early if no more bets appeared between clicks
+          if (isNoMoreBets(targetTable)) {
+            break;
+          }
           targetBetArea.click();
-          await new Promise(resolve => setTimeout(resolve, delayMs)); 
+          if (t < clickCmd.times - 1) {
+            // Delay between repeated clicks of same chip (not after the last one)
+            await new Promise(resolve => setTimeout(resolve, areaClickDelay));
+          }
         }
       }
+
+      // Small settle after all clicks before verification
+      await new Promise(resolve => setTimeout(resolve, 150));
 
       // 6. VERIFY
       let betConfirmed = false;
       let betAmount = null;
 
-      for (let i = 0; i < 20; i++) {
+      for (let i = 0; i < 25; i++) {
         await new Promise(resolve => setTimeout(resolve, 100));
         const chip = targetBetArea.querySelector(".bettingChip.placed");
         if (chip) {
           betConfirmed = true;
-          // Wait an extra 300ms to allow animations or rapid updates to settle
-          await new Promise(resolve => setTimeout(resolve, 300));
+          // Wait for animations/rapid DOM updates to settle
+          await new Promise(resolve => setTimeout(resolve, 200));
           
           let sum = 0;
           const placedChips = targetBetArea.querySelectorAll('.bettingChip.placed');

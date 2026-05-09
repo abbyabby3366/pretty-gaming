@@ -39,9 +39,9 @@ const betLog = [];
 const MAX_BET_LOG = 200;
 
 // Track active bet modules via heartbeat
-const activeModules = new Map(); // moduleId -> { baseUrl, lastHeartbeat, label }
-const cumulativeProfitMap = {};
-const todayProfitMap = {};
+const activeModules = new Map(); // moduleId -> { moduleId, baseUrl, lastHeartbeat, label }
+const cumulativeProfitMap = {}; // keyed by moduleId (stable)
+const todayProfitMap = {};       // keyed by moduleId (stable)
 
 function getTodayStart() {
   const now = new Date();
@@ -54,7 +54,9 @@ function getTodayStart() {
   return today12pm;
 }
 
-let lastRoundRobinIndex = 0;
+let lastRoundRobinIndex = -1;
+let lastRoundRobinModuleIds = []; // track the ordered list of module IDs for stable cycling
+let lastUsedModuleId = null;      // track which module was last dispatched to
 
 function resolveBetModuleTarget() {
   const now = Date.now();
@@ -92,12 +94,38 @@ function resolveBetModuleTarget() {
   if (online.length === 0) return null;
   
   if (betConfig.mode === 'round_robin' || !betConfig.mode) {
-    lastRoundRobinIndex = (lastRoundRobinIndex + 1) % online.length;
-    return online[lastRoundRobinIndex].baseUrl;
+    // Build a stable sorted list of module IDs to cycle through
+    const currentIds = online.map(m => m.moduleId).sort();
+    const idsChanged = JSON.stringify(currentIds) !== JSON.stringify(lastRoundRobinModuleIds);
+    
+    if (idsChanged) {
+      lastRoundRobinModuleIds = currentIds;
+      // When modules change, find where the last-used module sits in the new list
+      // and continue from the NEXT one to avoid double-picking
+      if (lastUsedModuleId) {
+        const lastPos = currentIds.indexOf(lastUsedModuleId);
+        lastRoundRobinIndex = lastPos >= 0 ? lastPos : -1;
+      } else {
+        lastRoundRobinIndex = -1;
+      }
+    }
+    
+    // Advance to next module
+    lastRoundRobinIndex = (lastRoundRobinIndex + 1) % currentIds.length;
+    const targetModuleId = currentIds[lastRoundRobinIndex];
+    const targetModule = online.find(m => m.moduleId === targetModuleId);
+    
+    if (targetModule) {
+      lastUsedModuleId = targetModuleId;
+      return { baseUrl: targetModule.baseUrl, moduleId: targetModule.moduleId };
+    }
+    return null;
   }
   
   // Default fallback if mode isn't recognized or we add others later
-  return online[0].baseUrl;
+  const fallback = online[0];
+  lastUsedModuleId = fallback.moduleId;
+  return { baseUrl: fallback.baseUrl, moduleId: fallback.moduleId };
 }
 
 function parseJSONBody(req) {
@@ -136,7 +164,7 @@ function startDashboard(stateManager) {
 
       const agg = await dbCollection.aggregate([
         { $match: { profit: { $ne: null } } },
-        { $group: { _id: "$targetModule", total: { $sum: "$profit" } } }
+        { $group: { _id: { $ifNull: ["$targetModuleId", "$targetModule"] }, total: { $sum: "$profit" } } }
       ]).toArray();
       for (const r of agg) {
         cumulativeProfitMap[r._id] = r.total;
@@ -148,7 +176,7 @@ function startDashboard(stateManager) {
           const todayStartStr = getTodayStart().toISOString();
           const todayAgg = await dbCollection.aggregate([
             { $match: { profit: { $ne: null }, time: { $gte: todayStartStr } } },
-            { $group: { _id: "$targetModule", total: { $sum: "$profit" } } }
+            { $group: { _id: { $ifNull: ["$targetModuleId", "$targetModule"] }, total: { $sum: "$profit" } } }
           ]).toArray();
           for (const k of Object.keys(todayProfitMap)) todayProfitMap[k] = 0;
           for (const r of todayAgg) todayProfitMap[r._id] = r.total;
@@ -166,6 +194,7 @@ function startDashboard(stateManager) {
         const body = await parseJSONBody(req);
         if (body.moduleId && body.baseUrl) {
           activeModules.set(body.moduleId, {
+            moduleId: body.moduleId,
             baseUrl: body.baseUrl,
             label: body.label || body.moduleId,
             accounts: body.accounts || [],
@@ -213,9 +242,9 @@ function startDashboard(stateManager) {
                 }
               }
               existingBet.profit = profit;
-              if (existingBet.targetModule) {
-                cumulativeProfitMap[existingBet.targetModule] = (cumulativeProfitMap[existingBet.targetModule] || 0) + profit;
-                todayProfitMap[existingBet.targetModule] = (todayProfitMap[existingBet.targetModule] || 0) + profit;
+              if (existingBet.targetModuleId) {
+                cumulativeProfitMap[existingBet.targetModuleId] = (cumulativeProfitMap[existingBet.targetModuleId] || 0) + profit;
+                todayProfitMap[existingBet.targetModuleId] = (todayProfitMap[existingBet.targetModuleId] || 0) + profit;
               }
 
               if (dbCollection) {
@@ -250,7 +279,9 @@ function startDashboard(stateManager) {
           }
         }
 
-        const targetBaseUrl = resolveBetModuleTarget();
+        const targetResult = resolveBetModuleTarget();
+        const targetBaseUrl = targetResult ? targetResult.baseUrl : null;
+        const targetModuleId = targetResult ? targetResult.moduleId : null;
         const betId = body.uuid || ("bet_" + Date.now() + "_" + Math.random().toString(36).substr(2, 5));
         
         let payout = 1;
@@ -274,11 +305,12 @@ function startDashboard(stateManager) {
            recommendedBetAmount = amount;
         }
         
-        let targetModuleLabel = targetBaseUrl || "NONE";
-        if (targetBaseUrl) {
-           const mod = Array.from(activeModules.values()).find(m => m.baseUrl === targetBaseUrl);
+        // Resolve human-readable label for display
+        let targetModuleLabel = "NONE";
+        if (targetModuleId) {
+           const mod = activeModules.get(targetModuleId);
            if (mod) {
-             targetModuleLabel = mod.label || targetModuleLabel;
+             targetModuleLabel = mod.label || targetModuleId;
              if (mod.accounts && mod.accounts.length > 0 && mod.accounts[0].label) {
                targetModuleLabel = mod.accounts[0].label;
              }
@@ -292,6 +324,7 @@ function startDashboard(stateManager) {
           round: body.ocr?.roundNumber,
           target: bestTarget,
           ev: bestEv,
+          targetModuleId: targetModuleId || null,
           targetModule: targetModuleLabel,
           reasonState: body,
           executionState: null,
@@ -470,8 +503,11 @@ function startDashboard(stateManager) {
         let totalStats = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0 };
 
         for (const b of bets) {
-          const mod = b.targetModule || "UNKNOWN";
-          if (!statsMap[mod]) statsMap[mod] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0 };
+          // Use moduleId for aggregation, fall back to label for old bets
+          const modId = b.targetModuleId || b.targetModule || "UNKNOWN";
+          // Use the human-readable label for display
+          const modLabel = b.targetModule || modId;
+          if (!statsMap[modId]) statsMap[modId] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, displayLabel: modLabel };
           
           let amt = parseFloat(b.actualBetAmount);
           if (isNaN(amt)) continue;
@@ -479,30 +515,30 @@ function startDashboard(stateManager) {
           const profit = b.profit || 0;
           const ev = b.ev || 0;
 
-          statsMap[mod].pnl += profit;
+          statsMap[modId].pnl += profit;
           totalStats.pnl += profit;
           
-          statsMap[mod].turnover += amt;
+          statsMap[modId].turnover += amt;
           totalStats.turnover += amt;
           
           if (b.roundOutcome !== "T") {
-            statsMap[mod].effTurnover += amt;
+            statsMap[modId].effTurnover += amt;
             totalStats.effTurnover += amt;
           }
 
           const evAmt = ev * amt;
-          statsMap[mod].expValue += evAmt;
+          statsMap[modId].expValue += evAmt;
           totalStats.expValue += evAmt;
         }
 
         // Get current balance of nodes (from activeModules)
         for (const m of activeModules.values()) {
-           const label = m.label || m.baseUrl;
-           if (!statsMap[label]) statsMap[label] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0 };
+           const mid = m.moduleId;
+           if (!statsMap[mid]) statsMap[mid] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, displayLabel: m.label };
            if (m.accounts && m.accounts[0] && m.accounts[0].balance != null) {
               const bval = parseFloat(m.accounts[0].balance);
               if (!isNaN(bval)) {
-                 statsMap[label].bal = bval;
+                 statsMap[mid].bal = bval;
                  totalStats.bal += bval;
               }
            }
@@ -526,7 +562,8 @@ function startDashboard(stateManager) {
            total: formatStats(totalStats)
         };
         for (const [mod, st] of Object.entries(statsMap)) {
-           result.nodes[mod] = formatStats(st);
+           const displayName = st.displayLabel || mod;
+           result.nodes[displayName] = formatStats(st);
         }
 
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -541,7 +578,7 @@ function startDashboard(stateManager) {
     if (req.method === "GET" && req.url.startsWith("/api/bets")) {
       let lastUpdated = null;
       try {
-        const stats = fs.statSync(path.join(ROOT, "tables_state.json"));
+        const stats = fs.statSync(path.join(ROOT, "eyes", "json", "tables_state.json"));
         lastUpdated = stats.mtime.toISOString();
       } catch (e) {}
 
@@ -550,16 +587,11 @@ function startDashboard(stateManager) {
         ok: true, 
         betLog, 
         activeModules: Array.from(activeModules.values()).map(m => {
-           const label = m.label;
-           const accLabel = m.accounts && m.accounts.length > 0 ? m.accounts[0].label : null;
-           const c1 = cumulativeProfitMap[label] || 0;
-           const c2 = accLabel ? (cumulativeProfitMap[accLabel] || 0) : 0;
-           const t1 = todayProfitMap[label] || 0;
-           const t2 = accLabel ? (todayProfitMap[accLabel] || 0) : 0;
+           const mid = m.moduleId;
            return {
              ...m,
-             cumulativeProfit: c1 + c2,
-             todayProfit: t1 + t2
+             cumulativeProfit: cumulativeProfitMap[mid] || 0,
+             todayProfit: todayProfitMap[mid] || 0
            };
         }),
         lastUpdated
@@ -615,7 +647,7 @@ function startDashboard(stateManager) {
     } else if (req.url === "/bets.html" || req.url === "/bets") {
       filePath = path.join(__dirname, "bets.html");
     } else if (req.url.startsWith("/tables_state.json")) {
-      filePath = path.join(ROOT, "tables_state.json");
+      filePath = path.join(ROOT, "eyes", "json", "tables_state.json");
     } else {
       res.writeHead(404);
       res.end("Not found");
