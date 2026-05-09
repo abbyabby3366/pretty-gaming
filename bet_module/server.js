@@ -100,6 +100,7 @@ async function runBetPG() {
           betType: bet.target || bet.betType,
           targetAmount: targetAmount,
           betPlacementDelayMs: parseInt(process.env.BET_PLACEMENT_DELAY_MS || "150", 10),
+          chipSettleDelayMs: parseInt(process.env.CHIP_SETTLE_DELAY_MS || "500", 10),
           chipSelector: ".chip",
         };
 
