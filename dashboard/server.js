@@ -198,6 +198,25 @@ function processCentralQueue() {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(betEntry)
+  }).then(async (resp) => {
+    if (!resp.ok) {
+      // Non-2xx response (e.g. 503 "Browser not ready" during session restart)
+      let errMsg = `HTTP ${resp.status}`;
+      try { const body = await resp.json(); errMsg = body.error || errMsg; } catch(e) {}
+      console.error(`[Central] Bet dispatch to ${targetModuleLabel} rejected: ${errMsg}`);
+      betEntry.outcome = "DISPATCH_FAILED";
+      betEntry.executionState = { status: "DISPATCH_FAILED", reason: errMsg };
+      if (mod) {
+        mod.isBusy = false;
+        mod.busySince = null;
+      }
+      if (dbCollection) {
+        dbCollection.updateOne(
+          { id: betEntry.id },
+          { $set: { outcome: betEntry.outcome, executionState: betEntry.executionState } }
+        ).catch(() => {});
+      }
+    }
   }).catch(err => {
     console.error("[Central] Failed to dispatch bet:", err.message);
     betEntry.outcome = "NETWORK_ERROR";
