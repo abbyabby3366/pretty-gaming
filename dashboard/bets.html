@@ -49,6 +49,11 @@
     .reason-truncate:hover {color:var(--cyan);}
     .reason-truncate.expanded {white-space:normal;overflow:visible;text-overflow:unset;max-width:none;}
 
+    @media (max-width: 768px) {
+      .reason-truncate {white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;}
+      .col-details, .col-table {display:none;}
+    }
+
     .modules-panel { padding: 12px; background: #0d1117; border-bottom: 1px solid var(--border); display: flex; gap: 12px; flex-wrap: wrap; }
     .module-card { background: var(--card); border: 1px solid var(--border); padding: 8px 12px; border-radius: 6px; min-width: 200px; }
     .module-card .m-title { font-size: 12px; font-weight: 600; color: var(--cyan); margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; }
@@ -114,11 +119,11 @@
       <thead>
         <tr>
           <th style="width:120px">Time</th>
-          <th>Table (Round)</th>
+          <th class="col-table">Table (Round)</th>
           <th>1. Signal (From Eyes)</th>
           <th>2. Betting Execution</th>
           <th>3. Round Outcome</th>
-          <th style="width:80px;text-align:right;">Details</th>
+          <th class="col-details" style="width:80px;text-align:right;">Details</th>
         </tr>
       </thead>
       <tbody id="tb">
@@ -216,7 +221,7 @@
       return `
         <tr>
           <td style="color:var(--dim);">${timeStr}</td>
-          <td>
+          <td class="col-table">
             <div style="color:var(--cyan);font-weight:600;font-size:12px;">${b.tableName}</div>
             <div style="color:var(--dim);font-size:10px;">Round ${b.round}</div>
             <div style="color:var(--dim);font-size:9px;margin-top:2px;" title="${b.id}">UUID: ...${b.id.substr(-6)}</div>
@@ -241,7 +246,7 @@
             <div style="font-weight:600;font-size:14px;color:${b.roundOutcome==='UNKNOWN'?'var(--dim)':(b.roundOutcome==='WAITING'?'var(--yellow)':'var(--purple)')}">${b.roundOutcome}</div>
             ${profitHtml}
           </td>
-          <td style="text-align:right;">
+          <td class="col-details" style="text-align:right;">
             <button class="btn-reason" onclick="toggleReason('${b.id}')">View JSON</button>
           </td>
         </tr>
