@@ -191,13 +191,25 @@ async function executeBetInBrowser(page, betConfig) {
       }
 
       // 5. EXECUTE BETS
-      const chipSelectDelay = Math.min(config.betPlacementDelayMs || 120, 200); // cap chip select delay
-      const areaClickDelay = Math.min(config.betPlacementDelayMs || 120, 150);  // area clicks can be faster
+      const areaClickDelay = config.betPlacementDelayMs || 150;
+
+      // Helper: check if a chip element is the currently selected one
+      function isChipActive(el) {
+        if (!el) return false;
+        // Check common class names the platform may use
+        if (el.classList.contains("active") || el.classList.contains("selected") || el.classList.contains("current")) return true;
+        // Also check for visual indicators like a highlight border or scale transform
+        const style = window.getComputedStyle(el);
+        if (style.transform && style.transform !== 'none' && style.transform.includes('scale')) return true;
+        return false;
+      }
 
       for (let clickCmd of config.clicksSequence) {
-        const chipEl = chips[clickCmd.chipIndex];
+        // Re-query chips fresh each iteration to avoid stale DOM references
+        const freshChips = document.querySelectorAll(config.chipSelector);
+        const chipEl = freshChips[clickCmd.chipIndex];
         if (!chipEl) {
-          return { success: false, reason: `Chip index ${clickCmd.chipIndex} out of bounds` };
+          return { success: false, reason: `Chip index ${clickCmd.chipIndex} out of bounds (found ${freshChips.length} chips)` };
         }
         
         // Bail early if no more bets appeared mid-execution
@@ -205,10 +217,24 @@ async function executeBetInBrowser(page, betConfig) {
           break;
         }
 
-        // Select this chip only if it's not already visibly active
-        if (!chipEl.classList.contains("active") && !chipEl.classList.contains("selected") && !chipEl.classList.contains("current")) {
-           chipEl.click();
-           await new Promise(resolve => setTimeout(resolve, chipSelectDelay));
+        // ALWAYS click the chip to ensure it's selected — the "skip if active"
+        // optimization was causing wrong-chip bets when the class state was stale
+        chipEl.click();
+
+        // Wait and VERIFY the chip is now active before proceeding
+        let chipConfirmed = false;
+        for (let poll = 0; poll < 10; poll++) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+          // Re-query to get the freshest state
+          const latestChips = document.querySelectorAll(config.chipSelector);
+          if (latestChips[clickCmd.chipIndex] && isChipActive(latestChips[clickCmd.chipIndex])) {
+            chipConfirmed = true;
+            break;
+          }
+        }
+        // If we couldn't confirm, add a longer safety delay
+        if (!chipConfirmed) {
+          await new Promise(resolve => setTimeout(resolve, 200));
         }
 
         // Click target area 'times' times
@@ -226,7 +252,7 @@ async function executeBetInBrowser(page, betConfig) {
       }
 
       // Small settle after all clicks before verification
-      await new Promise(resolve => setTimeout(resolve, 150));
+      await new Promise(resolve => setTimeout(resolve, 200));
 
       // 6. VERIFY
       let betConfirmed = false;
