@@ -259,7 +259,7 @@ async function executeBetInBrowser(page, betConfig) {
         }
 
         // Small settle between chip commands to let the DOM update after placement
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 300));
       }
 
       // Small settle after all clicks before verification
