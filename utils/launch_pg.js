@@ -158,6 +158,16 @@ async function launchAccount(acctConfig) {
         logger.log("Connected to existing Chrome instance.");
       } catch (e) {
     logger.log("Chrome not found on debugging port. Spawning new instance...");
+    
+    // Clean up stale lock file from previous force-killed sessions
+    try {
+      const lockFile = require("path").join(chrome.userDataDir, "lockfile");
+      if (require("fs").existsSync(lockFile)) {
+        require("fs").unlinkSync(lockFile);
+        logger.log("Removed stale Chrome lock file.");
+      }
+    } catch (e) {}
+    
     const chromeArgs = [
       `--remote-debugging-port=${chrome.remoteDebuggingPort}`,
       `--user-data-dir=${chrome.userDataDir}`,

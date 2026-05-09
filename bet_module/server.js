@@ -21,6 +21,7 @@ const ACCOUNT_INDEX = parseInt(process.env.ACCOUNT_INDEX || "0", 10);
 const betQueue = [];
 let isBrowserReady = false;
 let browserPage = null;
+let browserInstance = null;
 let domCleanupInterval = null;
 let latestBalance = null;
 let sessionRestartPending = false;
@@ -233,10 +234,22 @@ function scheduleSessionRestart(acctConfig) {
       console.log(`\x1b[31m[Session Restart] Bet still in progress after ${maxWaitMs / 1000}s, forcing restart anyway.\x1b[0m`);
     }
     
-    // Step 3: Kill Chrome
-    const port = acctConfig.chrome.remoteDebuggingPort;
-    console.log(`[Session Restart] Killing Chrome on debugging port ${port}...`);
-    killChromeByPort(port);
+    // Step 3: Close Chrome gracefully (avoids stale lock files)
+    console.log(`[Session Restart] Closing Chrome gracefully...`);
+    let closed = false;
+    if (browserInstance) {
+      try {
+        await browserInstance.close();
+        closed = true;
+        console.log(`[Session Restart] Chrome closed gracefully.`);
+      } catch (e) {
+        console.error(`[Session Restart] Graceful close failed: ${e.message}. Falling back to taskkill...`);
+      }
+    }
+    if (!closed) {
+      const port = acctConfig.chrome.remoteDebuggingPort;
+      killChromeByPort(port);
+    }
     
     // Step 4: Send WhatsApp notification
     const uptimeStr = `${minutes} min`;
@@ -262,6 +275,7 @@ async function initBrowser() {
       
       const { browser, page } = await launchAccount(acctConfig);
       browserContext = browser;
+      browserInstance = browser;
       browserPage = page;
       isBrowserReady = true;
 
@@ -300,10 +314,12 @@ async function initBrowser() {
       console.log(`\x1b[31m[Bet Module] Browser closed or crashed. Relaunching...\x1b[0m`);
       isBrowserReady = false;
       browserPage = null;
+      browserInstance = null;
     } catch (err) {
       console.error("\x1b[31m[Bet Module] Launch error:\x1b[0m", err.message);
       isBrowserReady = false;
       browserPage = null;
+      browserInstance = null;
       if (domCleanupInterval) {
         clearInterval(domCleanupInterval);
         domCleanupInterval = null;

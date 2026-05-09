@@ -55,13 +55,26 @@ function killChromeByPort(port) {
       if (restartMinutes && restartMinutes > 0) {
         console.log(`[Session Restart] Scheduled in ${restartMinutes} minutes for ${acctConfig.label}.`);
         sessionRestartTimer = setTimeout(async () => {
-          console.log(`\x1b[33m[Session Restart] Timer fired for ${acctConfig.label}. Killing browser...`);
+          console.log(`\x1b[33m[Session Restart] Timer fired for ${acctConfig.label}. Closing browser gracefully...\x1b[0m`);
 
-          const port = acctConfig.chrome.remoteDebuggingPort;
-          killChromeByPort(port);
+          // Try graceful close first (avoids stale lock files), fallback to taskkill
+          let closed = false;
+          if (browserContext) {
+            try {
+              await browserContext.close();
+              closed = true;
+              console.log(`[Session Restart] Chrome closed gracefully.`);
+            } catch (e) {
+              console.error(`[Session Restart] Graceful close failed: ${e.message}. Falling back to taskkill...`);
+            }
+          }
+          if (!closed) {
+            const port = acctConfig.chrome.remoteDebuggingPort;
+            killChromeByPort(port);
+          }
 
           sendWhatsAppNotification(
-            `[SESSION RESTART] Eyes module "${acctConfig.label}" restarting after ${restartMinutes} min uptime. Browser killed, relaunching...`
+            `[SESSION RESTART] Eyes module "${acctConfig.label}" restarting after ${restartMinutes} min uptime. Browser closed, relaunching...`
           ).catch(err => console.error("WhatsApp notification failed:", err.message));
         }, restartMinutes * 60 * 1000);
       }

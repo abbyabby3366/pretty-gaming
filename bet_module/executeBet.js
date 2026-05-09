@@ -269,16 +269,19 @@ async function executeBetInBrowser(page, betConfig) {
       let betConfirmed = false;
       let betAmount = null;
 
+      // Re-query bet area one final time for verification (avoid stale reference)
+      const verifyBetArea = findBetArea();
+
       for (let i = 0; i < 25; i++) {
         await new Promise(resolve => setTimeout(resolve, 100));
-        const chip = targetBetArea.querySelector(".bettingChip.placed");
+        const chip = verifyBetArea ? verifyBetArea.querySelector(".bettingChip.placed") : null;
         if (chip) {
           betConfirmed = true;
           // Wait for animations/rapid DOM updates to settle
           await new Promise(resolve => setTimeout(resolve, 200));
           
           let sum = 0;
-          const placedChips = targetBetArea.querySelectorAll('.bettingChip.placed');
+          const placedChips = verifyBetArea.querySelectorAll('.bettingChip.placed');
           
           for (let c of placedChips) {
             let chipValue = 0;
