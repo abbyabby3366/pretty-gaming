@@ -16,3 +16,6 @@ run = "node dashboard/server.js"
 [tasks.bet]
 description = "Launch all bet module accounts (run: true in bet_accounts.json)"
 run = "node bet_module/launcher.js"
+
+[tools]
+node = "22"
