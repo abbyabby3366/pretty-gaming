@@ -62,7 +62,7 @@ async function checkPGpage(page, logger) {
         logger.log("Clicked 'Multiplay' button (background).");
       }
     } catch (err) {
-      if (err.message && (err.message.includes("Target closed") || err.message.includes("Session closed"))) {
+      if (err.message && (err.message.includes("Target closed") || err.message.includes("Session closed") || err.message.includes("detached Frame"))) {
         clearInterval(dismissInterval);
       }
     }

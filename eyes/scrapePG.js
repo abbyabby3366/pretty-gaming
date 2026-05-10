@@ -15,7 +15,11 @@ async function scrapePG(page, extractorCode, acctConfig = {}) {
   }
   await ensureMultiplayActive(page);
 
-  const rawResult = await page.evaluate(extractorCode);
+  // Prevent hanging indefinitely if the Chromium tab freezes
+  const evaluatePromise = page.evaluate(extractorCode);
+  const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("page.evaluate timeout")), 15000));
+  
+  const rawResult = await Promise.race([evaluatePromise, timeoutPromise]);
   if (!rawResult) return null;
 
   try {

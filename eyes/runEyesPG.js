@@ -361,10 +361,11 @@ async function runEyesPG(page, extractorCode, acctConfig) {
     } catch (err) {
       console.error("Error during runPG cycle:", err.message);
       
-      // If the page is detached, closed, or context destroyed, initiate recovery
+      // If the page is detached, closed, context destroyed, or timed out, initiate recovery
       if (err.message.includes("detached Frame") || 
           err.message.includes("Execution context was destroyed") || 
-          err.message.includes("Target closed")) {
+          err.message.includes("Target closed") ||
+          err.message.includes("timeout")) {
           consecutiveErrors++;
           if (consecutiveErrors >= 3) {
              console.log("\x1b[31m[RECOVERY] Too many critical page errors. Requesting relaunch...\x1b[0m");

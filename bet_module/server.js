@@ -229,6 +229,19 @@ function scheduleSessionRestart(acctConfig) {
           }
         }
         console.log(`[Session Restart] Winbox and Game pages closed. Default page kept alive.`);
+        
+        // Update login timestamp to prevent immediate re-triggering in subsequent loops
+        try {
+          const fs = require('fs');
+          const path = require('path');
+          const tsFile = path.resolve(__dirname, "..", "utils", "login_timestamps.json");
+          const timestampsStr = fs.readFileSync(tsFile, 'utf8');
+          const timestamps = JSON.parse(timestampsStr);
+          timestamps[acctConfig.label] = Date.now();
+          fs.writeFileSync(tsFile, JSON.stringify(timestamps, null, 2));
+        } catch (e) {
+          console.error("[Session Restart] Failed to update login timestamp:", e.message);
+        }
       }
     } catch (e) {
       console.error(`[Session Restart] Error closing pages:`, e.message);
@@ -294,6 +307,10 @@ async function initBrowser() {
       }
       
       console.log(`\x1b[31m[Bet Module] Browser closed or crashed. Relaunching...\x1b[0m`);
+      sendWhatsAppNotification(
+        `[RECOVERY] Bet module "${currentAccountLabel}" encountered critical errors and is relaunching...`
+      ).catch(err => console.error("WhatsApp notification failed:", err.message));
+
       isBrowserReady = false;
       browserPage = null;
       browserInstance = null;
