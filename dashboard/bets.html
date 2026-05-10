@@ -98,6 +98,7 @@
       <select id="filter-status" onchange="applyFilters()" style="background:#0d1117;border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:3px;font-family:inherit;font-size:11px;outline:none;">
         <option value="ALL">All Status</option>
         <option value="SUCCESS">Success</option>
+        <option value="NON_SUCCESS">Non Success</option>
         <option value="WRONG_AMOUNT">Wrong Amount</option>
         <option value="UNPLACED">Unplaced</option>
         <option value="FAILED">Failed</option>
@@ -361,7 +362,11 @@
       
       let filtered = currentBetsData;
       if (statusFilter !== 'ALL') {
-        filtered = filtered.filter(b => b.outcome === statusFilter);
+        if (statusFilter === 'NON_SUCCESS') {
+          filtered = filtered.filter(b => b.outcome !== 'SUCCESS');
+        } else {
+          filtered = filtered.filter(b => b.outcome === statusFilter);
+        }
       }
       
       document.getElementById('count').textContent = filtered.length + ' bets';

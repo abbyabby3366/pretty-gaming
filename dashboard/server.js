@@ -667,7 +667,8 @@ function startDashboard(stateManager) {
            const mid = m.moduleId;
            if (!statsMap[mid]) statsMap[mid] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, displayLabel: m.label };
            if (m.accounts && m.accounts[0] && m.accounts[0].balance != null) {
-              const bval = parseFloat(m.accounts[0].balance);
+              const cleanBalance = String(m.accounts[0].balance).replace(/[^0-9.-]/g, '');
+              const bval = parseFloat(cleanBalance);
               if (!isNaN(bval)) {
                  statsMap[mid].bal = bval;
                  totalStats.bal += bval;
