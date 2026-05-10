@@ -25,6 +25,7 @@ let domCleanupInterval = null;
 let latestBalance = null;
 let isBetInProgress = false;
 let sessionRestartTimer = null;
+let isIntentionalRestart = false;
 
 const initialAccountsPath = path.resolve(__dirname, "json", "bet_accounts.json");
 const initialAcctConfig = buildAccountConfig(ACCOUNT_INDEX, initialAccountsPath);
@@ -221,6 +222,7 @@ function scheduleSessionRestart(acctConfig) {
     
     // Step 3: Close Winbox and Game pages, but leave the default about:blank to keep Chrome alive
     console.log(`[Session Restart] Closing Winbox and Game pages to force a fresh login...`);
+    isIntentionalRestart = true;
     try {
       if (browserInstance) {
         const allPages = await browserInstance.pages();
@@ -248,12 +250,6 @@ function scheduleSessionRestart(acctConfig) {
     } catch (e) {
       console.error(`[Session Restart] Error closing pages:`, e.message);
     }
-    
-    // Step 4: Send WhatsApp notification
-    const uptimeStr = `${minutes} min`;
-    sendWhatsAppNotification(
-      `[SESSION RESTART] Bet module "${acctConfig.label}" session restart after ${uptimeStr}. Relaunching...`
-    ).catch(err => console.error("WhatsApp notification failed:", err.message));
     
     // The initBrowser loop will detect page.isClosed() and relaunch via launchAccount
   }, 30000); // Poll every 30 seconds
@@ -309,9 +305,12 @@ async function initBrowser() {
       }
       
       console.log(`\x1b[31m[Bet Module] Browser closed or crashed. Relaunching...\x1b[0m`);
-      sendWhatsAppNotification(
-        `[RECOVERY] Bet module "${currentAccountLabel}" relaunching. Reason: Browser tab was closed unexpectedly.`
-      ).catch(err => console.error("WhatsApp notification failed:", err.message));
+      if (!isIntentionalRestart) {
+        sendWhatsAppNotification(
+          `[RECOVERY] Bet module "${currentAccountLabel}" relaunching. Reason: Browser tab was closed unexpectedly.`
+        ).catch(err => console.error("WhatsApp notification failed:", err.message));
+      }
+      isIntentionalRestart = false;
 
       isBrowserReady = false;
       browserPage = null;
@@ -320,9 +319,12 @@ async function initBrowser() {
       if (browserContext) await browserContext.disconnect().catch(() => {});
     } catch (err) {
       console.error("\x1b[31m[Bet Module] Launch error:\x1b[0m", err.message);
-      sendWhatsAppNotification(
-        `[RECOVERY] Bet module "${currentAccountLabel}" failed and is relaunching. Reason: ${err.message}`
-      ).catch(e => console.error("WhatsApp notification failed:", e.message));
+      if (!isIntentionalRestart) {
+        sendWhatsAppNotification(
+          `[RECOVERY] Bet module "${currentAccountLabel}" failed and is relaunching. Reason: ${err.message}`
+        ).catch(e => console.error("WhatsApp notification failed:", e.message));
+      }
+      isIntentionalRestart = false;
 
       isBrowserReady = false;
       browserPage = null;

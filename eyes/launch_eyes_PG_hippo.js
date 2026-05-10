@@ -19,6 +19,7 @@ const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
     let sessionRestartTimer = null;
     let pageRef = { current: null };
     let isRestarting = false;
+    let isIntentionalRestart = false;
     try {
       const acctConfig = buildAccountConfig(0, accountsPath);
       const { browser, page } = await launchAccount(acctConfig);
@@ -80,10 +81,7 @@ const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
                   console.error("[Session Restart] Failed to update login timestamp:", e.message);
                 }
 
-                sendWhatsAppNotification(
-                  `[SESSION RESTART] Eyes module "${acctConfig.label}" seamlessly swapped to new page after ${restartMinutes} min.`
-                ).catch(err => {});
-                
+
                 isRestarting = false;
                 return; // Done with seamless restart, keep interval alive
               }
@@ -100,6 +98,7 @@ const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
 
           // Step 3: Close Winbox and Game pages, but leave the default about:blank to keep Chrome alive
           console.log(`[Session Restart] Closing Winbox and Game pages to force a fresh login...`);
+          isIntentionalRestart = true;
           try {
             if (browserContext) {
               const allPages = await browserContext.pages();
@@ -128,9 +127,7 @@ const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
             console.error(`[Session Restart] Error closing pages:`, e.message);
           }
 
-          sendWhatsAppNotification(
-            `[SESSION RESTART] Eyes module "${acctConfig.label}" session restart after ${restartMinutes} min. Relaunching...`
-          ).catch(err => console.error("WhatsApp notification failed:", err.message));
+
         }, 30000); // Check every 30 seconds
       }
 
@@ -142,9 +139,12 @@ const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
       }
 
       console.log("\x1b[31m[RECOVERY] Extractor loop exited. Disconnecting and relaunching...\x1b[0m");
-      sendWhatsAppNotification(
-        `[RECOVERY] Eyes module "${acctConfig.label}" relaunching. Reason: Browser tab was closed unexpectedly.`
-      ).catch(err => console.error("WhatsApp notification failed:", err.message));
+      if (!isIntentionalRestart) {
+        sendWhatsAppNotification(
+          `[RECOVERY] Eyes module "${acctConfig.label}" relaunching. Reason: Browser tab was closed unexpectedly.`
+        ).catch(err => console.error("WhatsApp notification failed:", err.message));
+      }
+      isIntentionalRestart = false;
 
       if (browserContext) await browserContext.disconnect().catch(() => {});
       
@@ -157,9 +157,12 @@ const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
       }
       
       const label = (typeof acctConfig !== 'undefined' && acctConfig.label) ? acctConfig.label : "PG Eyes";
-      sendWhatsAppNotification(
-        `[RECOVERY] Eyes module "${label}" failed and is relaunching. Reason: ${err.message}`
-      ).catch(e => console.error("WhatsApp notification failed:", e.message));
+      if (!isIntentionalRestart) {
+        sendWhatsAppNotification(
+          `[RECOVERY] Eyes module "${label}" failed and is relaunching. Reason: ${err.message}`
+        ).catch(e => console.error("WhatsApp notification failed:", e.message));
+      }
+      isIntentionalRestart = false;
 
       if (browserContext) await browserContext.disconnect().catch(() => {});
       await new Promise(r => setTimeout(r, 5000));
