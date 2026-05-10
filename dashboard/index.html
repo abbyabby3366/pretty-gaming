@@ -101,6 +101,7 @@
       <button class="rst" onclick="resetAllTables()">Reset All</button>
       <button class="tog" onclick="openTablesConfig()">Tables Config</button>
       <button class="tog" onclick="openEvConfig()">EV Config</button>
+      <button class="tog" onclick="openShufflesStats()">Shuffles Stats</button>
       <button class="tog" id="deckToggle" onclick="toggleDeck()">Deck</button>
       <button class="tog" id="edgeToggle" onclick="toggleEdge()">Edge Only</button>
       <span class="live">● LIVE</span>
@@ -149,6 +150,18 @@
       <div class="modal-footer">
         <button class="btn" onclick="closeEvConfig()">Cancel</button>
         <button class="btn primary" onclick="saveEvConfig()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="shufflesModal">
+    <div class="modal" style="width: 500px;">
+      <div class="modal-title">Table Shuffles Detected</div>
+      <div class="modal-body" id="shufflesStatsBody">
+        <div style="color:var(--dim); padding:10px;">Loading stats...</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeShufflesStats()">Close</button>
       </div>
     </div>
   </div>
@@ -426,6 +439,46 @@
       } catch (e) {
         alert("Failed to save config.");
       }
+    }
+
+    async function openShufflesStats() {
+      document.getElementById('shufflesModal').style.display = 'flex';
+      const container = document.getElementById('shufflesStatsBody');
+      container.innerHTML = '<div style="color:var(--dim); padding:10px;">Loading stats...</div>';
+      
+      try {
+        const res = await fetch('/api/shuffles');
+        const data = await res.json();
+        if (data.ok && data.stats) {
+          if (data.stats.length === 0) {
+            container.innerHTML = '<div style="color:var(--dim); padding:10px;">No shuffles recorded yet.</div>';
+            return;
+          }
+          
+          let html = '';
+          for (const s of data.stats) {
+            html += `
+              <div style="margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">
+                <div id="stats-date-info" style="color:var(--yellow); font-size:11px; margin-bottom:5px; font-weight:600;">
+                  ${s.label}
+                </div>
+                <div style="font-size: 14px; font-weight: bold; color: var(--cyan);">
+                  ${s.count} <span style="font-size: 10px; color: var(--dim); font-weight: normal;">shuffles</span>
+                </div>
+              </div>
+            `;
+          }
+          container.innerHTML = html;
+        } else {
+          container.innerHTML = '<div style="color:var(--red); padding:10px;">Error loading stats.</div>';
+        }
+      } catch (e) {
+        container.innerHTML = '<div style="color:var(--red); padding:10px;">Error loading stats.</div>';
+      }
+    }
+
+    function closeShufflesStats() {
+      document.getElementById('shufflesModal').style.display = 'none';
     }
   </script>
 </body>

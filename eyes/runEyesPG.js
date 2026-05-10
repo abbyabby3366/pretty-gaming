@@ -97,6 +97,17 @@ function calculateEVForEvents(events, dynamicConfig = {}) {
 
 function sendSignals(events) {
   for (const event of events) {
+    if (event.type === "SHOE_RESET") {
+      fetch("http://localhost:3456/api/telemetry/shuffle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tableName: event.tableName, reason: event.reason })
+      }).catch(err => {
+        console.log(`  \x1b[31m[SHUFFLE] Failed to send to Central: ${err.message}\x1b[0m`);
+      });
+      continue;
+    }
+
     if (event.type !== "HAND_COMPLETE" && event.type !== "STATE_CHANGE") continue;
     const ts = event.tableState;
 

@@ -7,6 +7,7 @@ const { sendWhatsAppNotification } = require("../utils/whatsapp_notifier");
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017";
 let dbCollection = null;
+let dbCollectionShuffles = null;
 
 let betConfig = {
   mode: 'round_robin',
@@ -265,6 +266,7 @@ function startDashboard(stateManager) {
       await client.connect();
       const db = client.db("neuron_baccarat");
       dbCollection = db.collection("PRETTYGAMING_BETS");
+      dbCollectionShuffles = db.collection("PRETTYGAMING_SHUFFLES");
       
       const recentBets = await dbCollection.find().sort({ time: -1 }).limit(MAX_BET_LOG).toArray();
       for (const b of recentBets) {
@@ -463,6 +465,27 @@ function startDashboard(stateManager) {
 
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: true, action: "QUEUED_CENTRALLY", betId }));
+      } catch (e) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+      return;
+    }
+
+    if (req.method === "POST" && req.url.startsWith("/api/telemetry/shuffle")) {
+      try {
+        const body = await parseJSONBody(req);
+        if (dbCollectionShuffles) {
+          const shuffleEntry = {
+            id: "shuffle_" + Date.now() + "_" + Math.random().toString(36).substr(2, 5),
+            time: new Date().toISOString(),
+            tableName: body.tableName,
+            reason: body.reason || "Shuffling detected",
+          };
+          dbCollectionShuffles.insertOne(shuffleEntry).catch(() => {});
+        }
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, action: "SHUFFLE_RECORDED" }));
       } catch (e) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: false, error: e.message }));
@@ -676,6 +699,43 @@ function startDashboard(stateManager) {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: true, stats: result, dateInfo }));
       } catch(e) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+      return;
+    }
+
+    if (req.method === "GET" && req.url.startsWith("/api/shuffles")) {
+      try {
+        if (!dbCollectionShuffles) throw new Error("DB not connected");
+        
+        const shuffles = await dbCollectionShuffles.find({}).sort({ time: 1 }).toArray();
+        const dailyCounts = {};
+
+        shuffles.forEach(s => {
+          const t = new Date(s.time);
+          let dayStart = new Date(t.getFullYear(), t.getMonth(), t.getDate(), 12, 0, 0, 0);
+          if (t < dayStart) {
+            dayStart.setDate(dayStart.getDate() - 1);
+          }
+          let dayEnd = new Date(dayStart);
+          dayEnd.setDate(dayEnd.getDate() + 1);
+
+          const options = { weekday: 'short', day: 'numeric', month: 'short' };
+          const label = `${dayStart.toLocaleDateString('en-GB', options)}, 12:00 pm to ${dayEnd.toLocaleDateString('en-GB', options)}, 12:00 pm`;
+
+          if (!dailyCounts[label]) dailyCounts[label] = 0;
+          dailyCounts[label]++;
+        });
+
+        const sortedDays = Object.keys(dailyCounts).map(k => ({
+          label: k,
+          count: dailyCounts[k]
+        })).reverse();
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, stats: sortedDays }));
+      } catch (e) {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: false, error: e.message }));
       }
