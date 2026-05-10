@@ -747,29 +747,88 @@ function startDashboard(stateManager) {
     }
 
     if (req.method === "GET" && req.url.startsWith("/api/bets")) {
-      let lastUpdated = null;
       try {
-        const stats = fs.statSync(path.join(ROOT, "eyes", "json", "tables_state.json"));
-        lastUpdated = stats.mtime.toISOString();
-      } catch (e) {}
+        const url = new URL(req.url, `http://localhost:${PORT}`);
+        const page = parseInt(url.searchParams.get("page")) || 1;
+        const limit = parseInt(url.searchParams.get("limit")) || 100;
+        const statusFilter = url.searchParams.get("status") || "ALL";
+        const outcomeFilter = url.searchParams.get("outcome") || "ALL";
+        const startFilter = url.searchParams.get("start");
+        const endFilter = url.searchParams.get("end");
+        
+        const matchQ = {};
+        if (statusFilter !== "ALL") {
+          if (statusFilter === "NON_SUCCESS") {
+            matchQ.outcome = { $ne: "SUCCESS" };
+          } else {
+            matchQ.outcome = statusFilter;
+          }
+        }
+        if (outcomeFilter !== "ALL") {
+          matchQ.roundOutcome = outcomeFilter;
+        }
+        if (startFilter || endFilter) {
+          matchQ.time = {};
+          if (startFilter) matchQ.time.$gte = startFilter;
+          if (endFilter) matchQ.time.$lte = endFilter;
+        }
+        
+        const skip = (page - 1) * limit;
 
-      // Only return modules that are still alive (stale ones are already purged by the cleanup interval)
-      const onlineModules = Array.from(activeModules.values()).map(m => {
-        const mid = m.moduleId;
-        return {
-          ...m,
-          cumulativeProfit: cumulativeProfitMap[mid] || 0,
-          todayProfit: todayProfitMap[mid] || 0
-        };
-      });
+        let lastUpdated = null;
+        try {
+          const stats = fs.statSync(path.join(ROOT, "eyes", "json", "tables_state.json"));
+          lastUpdated = stats.mtime.toISOString();
+        } catch (e) {}
 
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ 
-        ok: true, 
-        betLog, 
-        activeModules: onlineModules,
-        lastUpdated
-      }));
+        const onlineModules = Array.from(activeModules.values()).map(m => {
+          const mid = m.moduleId;
+          return {
+            ...m,
+            cumulativeProfit: cumulativeProfitMap[mid] || 0,
+            todayProfit: todayProfitMap[mid] || 0
+          };
+        });
+
+        let totalBets = 0;
+        let paginatedBets = [];
+        if (dbCollection) {
+           totalBets = await dbCollection.countDocuments(matchQ);
+           paginatedBets = await dbCollection.find(matchQ).sort({ time: -1 }).skip(skip).limit(limit).toArray();
+        } else {
+           let filtered = betLog;
+           if (statusFilter !== 'ALL') {
+              if (statusFilter === 'NON_SUCCESS') {
+                 filtered = filtered.filter(b => b.outcome !== 'SUCCESS');
+              } else {
+                 filtered = filtered.filter(b => b.outcome === statusFilter);
+              }
+           }
+           if (outcomeFilter !== 'ALL') {
+              filtered = filtered.filter(b => b.roundOutcome === outcomeFilter);
+           }
+           if (startFilter) {
+              filtered = filtered.filter(b => b.time >= startFilter);
+           }
+           if (endFilter) {
+              filtered = filtered.filter(b => b.time <= endFilter);
+           }
+           totalBets = filtered.length;
+           paginatedBets = filtered.slice(skip, skip + limit);
+        }
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ 
+          ok: true, 
+          betLog: paginatedBets, 
+          totalBets: totalBets,
+          activeModules: onlineModules,
+          lastUpdated
+        }));
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: err.message }));
+      }
       return;
     }
 

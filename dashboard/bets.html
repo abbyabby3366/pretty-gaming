@@ -94,26 +94,14 @@
     <div style="color:var(--dim);">Loading modules...</div>
   </div>
   <div class="main">
-    <div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:10px;">
-      <select id="filter-status" onchange="applyFilters()" style="background:#0d1117;border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:3px;font-family:inherit;font-size:11px;outline:none;">
-        <option value="ALL">All Status</option>
-        <option value="SUCCESS">Success</option>
-        <option value="NON_SUCCESS">Non Success</option>
-        <option value="WRONG_AMOUNT">Wrong Amount</option>
-        <option value="UNPLACED">Unplaced</option>
-        <option value="FAILED">Failed</option>
-        <option value="PENDING">Pending</option>
-        <option value="AUTOBET_OFF">Autobet Off</option>
-        <option value="NO_MODULES_ONLINE">No Modules Online</option>
-        <option value="NETWORK_ERROR">Network Error</option>
-      </select>
-      <select id="filter-limit" onchange="applyFilters()" style="background:#0d1117;border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:3px;font-family:inherit;font-size:11px;outline:none;">
-        <option value="10">10 per page</option>
-        <option value="25">25 per page</option>
-        <option value="50">50 per page</option>
-        <option value="100" selected>100 per page</option>
-        <option value="500">500 per page</option>
-      </select>
+    <div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:10px; align-items:center;">
+      <button id="btn-open-filter" onclick="openFilterModal()" style="background:#0d1117;border:1px solid var(--border);color:var(--text);padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:11px;position:relative;">
+        ⚙ Filters
+        <span id="filter-badge" style="display:none;position:absolute;top:-6px;right:-6px;background:var(--cyan);color:#000;font-size:9px;font-weight:bold;border-radius:50%;width:14px;height:14px;line-height:14px;text-align:center;">0</span>
+      </button>
+      <span id="page-info" style="color:var(--cyan);font-weight:600;margin:0 10px;">Page 1 of 1</span>
+      <button onclick="prevPage()" style="background:#0d1117;border:1px solid var(--border);color:var(--text);padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:11px;">Prev</button>
+      <button onclick="nextPage()" style="background:#0d1117;border:1px solid var(--border);color:var(--text);padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:11px;">Next</button>
       <button onclick="clearLogs()" style="background:var(--red);color:white;border:none;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit;font-weight:600;">Clear Logs</button>
     </div>
     <table>
@@ -167,6 +155,7 @@
 
     function renderBet(b) {
       const d = new Date(b.time);
+      const dateStr = d.toLocaleDateString('en-GB', { timeZone: 'Asia/Singapore', day: '2-digit', month: 'short' });
       const timeStr = d.toLocaleTimeString('en-GB', { timeZone: 'Asia/Singapore', hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3,'0');
       
       const targetCls = 'target-' + b.target;
@@ -221,7 +210,10 @@
 
       return `
         <tr>
-          <td style="color:var(--dim);">${timeStr}</td>
+          <td style="color:var(--dim);">
+            <div style="color:var(--text);font-size:10px;">${dateStr}</div>
+            <div>${timeStr}</div>
+          </td>
           <td class="col-table">
             <div style="color:var(--cyan);font-weight:600;font-size:12px;">${b.tableName}</div>
             <div style="color:var(--dim);font-size:10px;">Round ${b.round}</div>
@@ -355,36 +347,96 @@
     let lastDataStr = '';
     let currentBetsData = [];
     let currentActiveModules = [];
+    let currentPage = 1;
+    let currentTotalBets = 0;
+
+    function openFilterModal() {
+      document.getElementById('filter-modal').style.display = 'flex';
+    }
+
+    function closeFilterModal() {
+      document.getElementById('filter-modal').style.display = 'none';
+    }
+
+    function updateFilterBadge() {
+      const statusFilter = document.getElementById('filter-status').value;
+      const outcomeFilter = document.getElementById('filter-outcome').value;
+      const startFilter = document.getElementById('filter-start').value;
+      const endFilter = document.getElementById('filter-end').value;
+      
+      let count = 0;
+      if (statusFilter !== 'ALL') count++;
+      if (outcomeFilter !== 'ALL') count++;
+      if (startFilter) count++;
+      if (endFilter) count++;
+      
+      const badge = document.getElementById('filter-badge');
+      const btn = document.getElementById('btn-open-filter');
+      if (count > 0) {
+        badge.textContent = count;
+        badge.style.display = 'block';
+        btn.style.borderColor = 'var(--cyan)';
+        btn.style.color = 'var(--cyan)';
+      } else {
+        badge.style.display = 'none';
+        btn.style.borderColor = 'var(--border)';
+        btn.style.color = 'var(--text)';
+      }
+    }
 
     function applyFilters() {
-      const statusFilter = document.getElementById('filter-status').value;
+      currentPage = 1;
+      lastDataStr = '';
+      updateFilterBadge();
+      closeFilterModal();
+      poll();
+    }
+
+    function prevPage() {
+      if (currentPage > 1) {
+        currentPage--;
+        lastDataStr = '';
+        poll();
+      }
+    }
+
+    function nextPage() {
       const limitFilter = parseInt(document.getElementById('filter-limit').value, 10);
-      
-      let filtered = currentBetsData;
-      if (statusFilter !== 'ALL') {
-        if (statusFilter === 'NON_SUCCESS') {
-          filtered = filtered.filter(b => b.outcome !== 'SUCCESS');
-        } else {
-          filtered = filtered.filter(b => b.outcome === statusFilter);
-        }
+      const maxPage = Math.ceil(currentTotalBets / limitFilter) || 1;
+      if (currentPage < maxPage) {
+        currentPage++;
+        lastDataStr = '';
+        poll();
       }
-      
-      document.getElementById('count').textContent = filtered.length + ' bets';
-      
-      if (limitFilter && limitFilter > 0) {
-        filtered = filtered.slice(0, limitFilter);
-      }
-      
-      const html = filtered.length 
-        ? filtered.map(renderBet).join('') 
+    }
+
+    function renderBetsTable(bets) {
+      const html = bets.length 
+        ? bets.map(renderBet).join('') 
         : '<tr><td colspan="8" style="text-align:center;color:var(--dim);padding:20px;">No bets match criteria.</td></tr>';
-      
       document.getElementById('tb').innerHTML = html;
     }
 
     async function poll(){
       try{
-        const rBets = await fetch('/api/bets?'+Date.now());
+        const statusFilter = document.getElementById('filter-status').value;
+        const outcomeFilter = document.getElementById('filter-outcome').value;
+        const limitFilter = parseInt(document.getElementById('filter-limit').value, 10);
+        const startFilter = document.getElementById('filter-start').value;
+        const endFilter = document.getElementById('filter-end').value;
+        
+        const qs = new URLSearchParams({
+           page: currentPage,
+           limit: limitFilter,
+           status: statusFilter,
+           outcome: outcomeFilter,
+           t: Date.now()
+        });
+        
+        if (startFilter) qs.append('start', new Date(startFilter).toISOString());
+        if (endFilter) qs.append('end', new Date(endFilter).toISOString());
+
+        const rBets = await fetch('/api/bets?' + qs.toString());
         
         if(!rBets.ok) return;
         const betsData = await rBets.json();
@@ -462,12 +514,17 @@
 
         currentActiveModules = betsData.activeModules || [];
         const bets = betsData.betLog || [];
+        currentTotalBets = betsData.totalBets || 0;
+
+        document.getElementById('count').textContent = currentTotalBets + ' bets';
+        const maxPage = Math.ceil(currentTotalBets / limitFilter) || 1;
+        document.getElementById('page-info').textContent = 'Page ' + currentPage + ' of ' + maxPage;
         
         const currentDataStr = JSON.stringify(bets) + JSON.stringify(currentActiveModules.map(m => m.label));
         if (currentDataStr !== lastDataStr) {
           lastDataStr = currentDataStr;
           currentBetsData = bets;
-          applyFilters();
+          renderBetsTable(bets);
         }
       }catch(e){
         // silent
@@ -608,6 +665,59 @@
       </div>
       <div class="modal-actions" style="margin-top:15px;">
         <button class="btn btn-secondary" onclick="closeStats()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="filter-modal">
+    <div class="modal">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+        <h2 style="margin:0; color:var(--cyan);">Filters & Display Options</h2>
+        <button onclick="closeFilterModal()" style="background:none;border:none;color:var(--text);cursor:pointer;font-size:18px;">&times;</button>
+      </div>
+      <div class="form-group">
+        <label>Status</label>
+        <select id="filter-status" style="width:100%; background:#0d1117; border:1px solid var(--border); color:var(--text); padding:6px; font-family:inherit; border-radius:4px; outline:none;">
+          <option value="ALL">All Status</option>
+          <option value="SUCCESS">Success</option>
+          <option value="NON_SUCCESS">Non Success</option>
+          <option value="WRONG_AMOUNT">Wrong Amount</option>
+          <option value="UNPLACED">Unplaced</option>
+          <option value="FAILED">Failed</option>
+          <option value="PENDING">Pending</option>
+          <option value="AUTOBET_OFF">Autobet Off</option>
+          <option value="NO_MODULES_ONLINE">No Modules Online</option>
+          <option value="NETWORK_ERROR">Network Error</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Round Outcome</label>
+        <select id="filter-outcome" style="width:100%; background:#0d1117; border:1px solid var(--border); color:var(--text); padding:6px; font-family:inherit; border-radius:4px; outline:none;">
+          <option value="ALL">All Outcomes</option>
+          <option value="WAITING">Waiting</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Start Date</label>
+        <input type="datetime-local" id="filter-start" style="color-scheme: dark; width:100%; background:#0d1117; border:1px solid var(--border); color:var(--text); padding:6px; font-family:inherit; border-radius:4px; outline:none;">
+      </div>
+      <div class="form-group">
+        <label>End Date</label>
+        <input type="datetime-local" id="filter-end" style="color-scheme: dark; width:100%; background:#0d1117; border:1px solid var(--border); color:var(--text); padding:6px; font-family:inherit; border-radius:4px; outline:none;">
+      </div>
+      <div class="form-group">
+        <label>Rows per page</label>
+        <select id="filter-limit" style="width:100%; background:#0d1117; border:1px solid var(--border); color:var(--text); padding:6px; font-family:inherit; border-radius:4px; outline:none;">
+          <option value="10">10 per page</option>
+          <option value="25">25 per page</option>
+          <option value="50">50 per page</option>
+          <option value="100" selected>100 per page</option>
+          <option value="500">500 per page</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeFilterModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="applyFilters()">Save Filters</button>
       </div>
     </div>
   </div>
