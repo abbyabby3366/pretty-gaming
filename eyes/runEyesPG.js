@@ -369,7 +369,7 @@ async function runEyesPG(page, extractorCode, acctConfig) {
           consecutiveErrors++;
           if (consecutiveErrors >= 3) {
              console.log("\x1b[31m[RECOVERY] Too many critical page errors. Requesting relaunch...\x1b[0m");
-             return false;
+             throw new Error(`Max critical errors reached. Last error: ${err.message}`);
           }
       }
       

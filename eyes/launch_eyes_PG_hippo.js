@@ -91,7 +91,7 @@ const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
 
       console.log("\x1b[31m[RECOVERY] Extractor loop exited. Disconnecting and relaunching...\x1b[0m");
       sendWhatsAppNotification(
-        `[RECOVERY] Eyes module "${acctConfig.label}" encountered critical errors and is relaunching...`
+        `[RECOVERY] Eyes module "${acctConfig.label}" relaunching. Reason: Browser tab was closed unexpectedly.`
       ).catch(err => console.error("WhatsApp notification failed:", err.message));
 
       if (browserContext) await browserContext.disconnect().catch(() => {});
@@ -103,6 +103,12 @@ const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
         clearInterval(sessionRestartTimer);
         sessionRestartTimer = null;
       }
+      
+      const label = (typeof acctConfig !== 'undefined' && acctConfig.label) ? acctConfig.label : "PG Eyes";
+      sendWhatsAppNotification(
+        `[RECOVERY] Eyes module "${label}" failed and is relaunching. Reason: ${err.message}`
+      ).catch(e => console.error("WhatsApp notification failed:", e.message));
+
       if (browserContext) await browserContext.disconnect().catch(() => {});
       await new Promise(r => setTimeout(r, 5000));
     }

@@ -310,7 +310,7 @@ async function initBrowser() {
       
       console.log(`\x1b[31m[Bet Module] Browser closed or crashed. Relaunching...\x1b[0m`);
       sendWhatsAppNotification(
-        `[RECOVERY] Bet module "${currentAccountLabel}" encountered critical errors and is relaunching...`
+        `[RECOVERY] Bet module "${currentAccountLabel}" relaunching. Reason: Browser tab was closed unexpectedly.`
       ).catch(err => console.error("WhatsApp notification failed:", err.message));
 
       isBrowserReady = false;
@@ -320,6 +320,10 @@ async function initBrowser() {
       if (browserContext) await browserContext.disconnect().catch(() => {});
     } catch (err) {
       console.error("\x1b[31m[Bet Module] Launch error:\x1b[0m", err.message);
+      sendWhatsAppNotification(
+        `[RECOVERY] Bet module "${currentAccountLabel}" failed and is relaunching. Reason: ${err.message}`
+      ).catch(e => console.error("WhatsApp notification failed:", e.message));
+
       isBrowserReady = false;
       browserPage = null;
       browserInstance = null;
