@@ -6,7 +6,7 @@
  */
 async function executeBetInBrowser(page, betConfig) {
   try {
-    return await page.evaluate(async (config) => {
+    const evaluatePromise = page.evaluate(async (config) => {
       const chips = document.querySelectorAll(config.chipSelector);
       if (chips.length === 0) {
         return { success: false, reason: "No chips found on screen" };
@@ -332,6 +332,9 @@ async function executeBetInBrowser(page, betConfig) {
 
       return { success: true, betAmount: betAmount, balance: currentBalance, timer: getTimer(targetTable) };
     }, betConfig);
+
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("page.evaluate timeout")), 25000));
+    return await Promise.race([evaluatePromise, timeoutPromise]);
   } catch (err) {
     console.error(`[Bet Module] Puppeteer evaluate error:`, err.message);
     return { success: false, reason: `Evaluate error: ${err.message}` };

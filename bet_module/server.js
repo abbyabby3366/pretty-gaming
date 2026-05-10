@@ -67,10 +67,12 @@ function sendHeartbeat() {
 async function updateBalance() {
   if (isBrowserReady && browserPage) {
     try {
-      const balance = await browserPage.evaluate(() => {
+      const evaluatePromise = browserPage.evaluate(() => {
         const el = document.querySelector("#balance-zone .block-newline");
         return el ? el.textContent.trim() : null;
       });
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000));
+      const balance = await Promise.race([evaluatePromise, timeoutPromise]);
       if (balance) {
         latestBalance = balance;
       }
