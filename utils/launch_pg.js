@@ -196,7 +196,7 @@ async function launchAccount(acctConfig) {
       let pages = await browser.pages();
       let page = pages.length > 0 ? pages[0] : await browser.newPage();
       
-      await page.goto("https://hippo168.com/lobby/multiplay", { waitUntil: "networkidle2", timeout: TIMEOUTS.navigationWait }).catch(() => {});
+      await page.goto("https://d3jai9eacl1740.cloudfront.net/lobby/multiplay", { waitUntil: "networkidle2", timeout: TIMEOUTS.navigationWait }).catch(() => {});
       
       await checkPGpage(page, logger);
       
