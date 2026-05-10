@@ -17,10 +17,13 @@ const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
   while (true) {
     let browserContext = null;
     let sessionRestartTimer = null;
+    let pageRef = { current: null };
+    let isRestarting = false;
     try {
       const acctConfig = buildAccountConfig(0, accountsPath);
       const { browser, page } = await launchAccount(acctConfig);
       browserContext = browser;
+      pageRef.current = page;
 
       console.log("Page loaded. Starting the extractor loop...");
 
@@ -41,10 +44,59 @@ const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
           const elapsedMin = (Date.now() - loginTime) / 60000;
           if (elapsedMin < restartMinutes) return;
           
+          if (isRestarting) return;
+          isRestarting = true;
+
+          console.log(`\x1b[33m[Session Restart] ${elapsedMin.toFixed(1)} mins elapsed for ${acctConfig.label}. Initiating restart sequence...\x1b[0m`);
+
+          if (acctConfig.platform === "hippo" || acctConfig.platform === "directurl" || acctConfig.platform === "direct_url") {
+            console.log(`[Session Restart] Performing SEAMLESS restart for Hippo... Preparing new page in background.`);
+            try {
+              if (browserContext) {
+                const newPage = await browserContext.newPage();
+                await newPage.goto("https://d3jai9eacl1740.cloudfront.net/lobby/multiplay", { waitUntil: "networkidle2", timeout: 30000 }).catch(() => {});
+                
+                const { checkPGpage } = require("../utils/check_page_pg");
+                await checkPGpage(newPage, { log: console.log, warn: console.warn, error: console.error });
+                
+                console.log(`[Session Restart] New page fully loaded and prepared. Swapping seamlessly!`);
+                const oldPage = pageRef.current;
+                pageRef.current = newPage;
+                
+                if (oldPage && !oldPage.isClosed()) {
+                  await oldPage.close().catch(() => {});
+                }
+                
+                // Update login timestamp
+                try {
+                  const fs = require('fs');
+                  const path = require('path');
+                  const tsFile = path.resolve(__dirname, "..", "utils", "login_timestamps.json");
+                  const timestampsStr = fs.readFileSync(tsFile, 'utf8');
+                  const timestamps = JSON.parse(timestampsStr);
+                  timestamps[acctConfig.label] = Date.now();
+                  fs.writeFileSync(tsFile, JSON.stringify(timestamps, null, 2));
+                } catch (e) {
+                  console.error("[Session Restart] Failed to update login timestamp:", e.message);
+                }
+
+                sendWhatsAppNotification(
+                  `[SESSION RESTART] Eyes module "${acctConfig.label}" seamlessly swapped to new page after ${restartMinutes} min.`
+                ).catch(err => {});
+                
+                isRestarting = false;
+                return; // Done with seamless restart, keep interval alive
+              }
+            } catch (err) {
+              console.error("[Session Restart] Seamless restart failed:", err.message);
+              isRestarting = false;
+              return; // Let it try again on next interval tick
+            }
+          }
+
+          // Legacy Winbox behavior
           clearInterval(sessionRestartTimer);
           sessionRestartTimer = null;
-
-          console.log(`\x1b[33m[Session Restart] ${elapsedMin.toFixed(1)} mins elapsed for ${acctConfig.label}. Closing game pages...\x1b[0m`);
 
           // Step 3: Close Winbox and Game pages, but leave the default about:blank to keep Chrome alive
           console.log(`[Session Restart] Closing Winbox and Game pages to force a fresh login...`);
@@ -82,7 +134,7 @@ const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
         }, 30000); // Check every 30 seconds
       }
 
-      await runEyesPG(page, extractorCode, acctConfig);
+      await runEyesPG(pageRef, extractorCode, acctConfig);
       
       if (sessionRestartTimer) {
         clearInterval(sessionRestartTimer);

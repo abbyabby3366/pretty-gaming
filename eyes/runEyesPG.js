@@ -263,15 +263,18 @@ function writeStateJson(tables, timestamp, events, allScrapedTables = [], ignore
 
 // ─── Main Orchestrator ───────────────────────────────────────────────────
 
-async function runEyesPG(page, extractorCode, acctConfig) {
+async function runEyesPG(pageOrRef, extractorCode, acctConfig) {
   let consecutiveErrors = 0;
   
-  while (!page.isClosed()) {
+  const getPage = () => (pageOrRef && pageOrRef.current) ? pageOrRef.current : pageOrRef;
+
+  while (!getPage().isClosed()) {
     try {
       const startTime = Date.now();
+      const currentPage = getPage();
 
       // Step 1: Scrape
-      const data = await scrapePG(page, extractorCode, acctConfig);
+      const data = await scrapePG(currentPage, extractorCode, acctConfig);
       if (!data) {
         await new Promise(r => setTimeout(r, 1000));
         continue;
