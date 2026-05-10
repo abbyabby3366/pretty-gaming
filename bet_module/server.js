@@ -26,6 +26,7 @@ let latestBalance = null;
 let isBetInProgress = false;
 let sessionRestartTimer = null;
 let isIntentionalRestart = false;
+let consecutiveBetErrors = 0;
 
 const initialAccountsPath = path.resolve(__dirname, "json", "bet_accounts.json");
 const initialAcctConfig = buildAccountConfig(ACCOUNT_INDEX, initialAccountsPath);
@@ -122,6 +123,21 @@ async function runBetPG() {
       isBetInProgress = false;
       
       const status = success ? "SUCCESS" : "FAILED";
+      
+      if (!success) {
+        consecutiveBetErrors++;
+        if (consecutiveBetErrors >= 3) {
+          if (currentAccountLabel && currentAccountLabel.includes("964")) {
+            sendWhatsAppNotification(
+              `[ALERT] Bet module "${currentAccountLabel}" encountered 3 consecutive bet errors. Last reason: ${reason || "None"}`
+            ).catch(err => console.error("WhatsApp notification failed:", err.message));
+          }
+          consecutiveBetErrors = 0;
+        }
+      } else {
+        consecutiveBetErrors = 0;
+      }
+
       const amountText = success && bet.actualBetAmount ? ` [Amount: ${bet.actualBetAmount}]` : "";
       const reasonText = success ? "" : ` (Reason: ${reason || "None given"})`;
       const timerText = bet.timer != null ? ` [Timer: ${bet.timer}s]` : "";
