@@ -111,6 +111,7 @@ class TableStateManager {
             type: "SHOE_RESET",
             tableName: name,
             reason: `Round dropped ${ts.lastRound} → ${newRound} after restore`,
+            finalRound: ts.lastRound
           });
         } else {
           console.log(`\x1b[36m[STATE] ${name}: Validated (saved R${ts.lastRound} → live R${newRound})\x1b[0m`);
@@ -124,6 +125,7 @@ class TableStateManager {
           type: "SHOE_RESET",
           tableName: name,
           reason: "Shuffling state detected",
+          finalRound: ts.lastRound
         });
       }
 
@@ -134,6 +136,7 @@ class TableStateManager {
           type: "SHOE_RESET",
           tableName: name,
           reason: `Recorded hands ${ts.handNumber} exceeds table round ${newRound}`,
+          finalRound: ts.lastRound
         });
       }
 
@@ -145,6 +148,7 @@ class TableStateManager {
           type: "SHOE_RESET",
           tableName: name,
           reason: `Deck size ${ts.remaining} is too low for round ${newRound}`,
+          finalRound: ts.lastRound
         });
       }
 

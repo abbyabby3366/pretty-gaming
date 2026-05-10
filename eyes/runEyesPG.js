@@ -101,7 +101,7 @@ function sendSignals(events) {
       fetch("http://localhost:3456/api/telemetry/shuffle", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tableName: event.tableName, reason: event.reason })
+        body: JSON.stringify({ tableName: event.tableName, reason: event.reason, finalRound: event.finalRound })
       }).catch(err => {
         console.log(`  \x1b[31m[SHUFFLE] Failed to send to Central: ${err.message}\x1b[0m`);
       });

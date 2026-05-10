@@ -481,6 +481,7 @@ function startDashboard(stateManager) {
             time: new Date().toISOString(),
             tableName: body.tableName,
             reason: body.reason || "Shuffling detected",
+            finalRound: body.finalRound || 0
           };
           dbCollectionShuffles.insertOne(shuffleEntry).catch(() => {});
         }
@@ -724,13 +725,15 @@ function startDashboard(stateManager) {
           const options = { weekday: 'short', day: 'numeric', month: 'short' };
           const label = `${dayStart.toLocaleDateString('en-GB', options)}, 12:00 pm to ${dayEnd.toLocaleDateString('en-GB', options)}, 12:00 pm`;
 
-          if (!dailyCounts[label]) dailyCounts[label] = 0;
-          dailyCounts[label]++;
+          if (!dailyCounts[label]) dailyCounts[label] = { count: 0, finalRounds: [] };
+          dailyCounts[label].count++;
+          if (s.finalRound) dailyCounts[label].finalRounds.push(s.finalRound);
         });
 
         const sortedDays = Object.keys(dailyCounts).map(k => ({
           label: k,
-          count: dailyCounts[k]
+          count: dailyCounts[k].count,
+          finalRounds: dailyCounts[k].finalRounds
         })).reverse();
 
         res.writeHead(200, { "Content-Type": "application/json" });

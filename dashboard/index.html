@@ -457,6 +457,7 @@
           
           let html = '';
           for (const s of data.stats) {
+            const arrStr = s.finalRounds && s.finalRounds.length > 0 ? `[${s.finalRounds.join(', ')}]` : '[]';
             html += `
               <div style="margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">
                 <div id="stats-date-info" style="color:var(--yellow); font-size:11px; margin-bottom:5px; font-weight:600;">
@@ -464,6 +465,9 @@
                 </div>
                 <div style="font-size: 14px; font-weight: bold; color: var(--cyan);">
                   ${s.count} <span style="font-size: 10px; color: var(--dim); font-weight: normal;">shuffles</span>
+                </div>
+                <div style="font-size: 10px; color: var(--dim); margin-top: 5px;">
+                  Final Rounds: <span style="color: var(--text); user-select: all; font-family: monospace;">${arrStr}</span>
                 </div>
               </div>
             `;
