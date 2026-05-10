@@ -68,6 +68,7 @@ class TableState {
     this.lastEvResult = null;
     this.bufferedCards = { player: [], banker: [] };
     this.restored = false; // true if loaded from saved state, cleared after first validation
+    this.lastWarningHand = -1; // track warnings to prevent spam
   }
 
   get remaining() {
@@ -129,15 +130,22 @@ class TableStateManager {
         });
       }
 
-      // ── Reset deck if recorded hands exceed current round (with +1 tolerance for UI lag) ──
-      if (ts.handNumber > newRound + 1 && newRound > 0) {
-        this._resetShoe(ts, `Invalid state: recorded hands (${ts.handNumber}) > table round + 1 (${newRound + 1})`);
+      // ── Reset or warn if recorded hands exceed current round ──
+      if (ts.handNumber >= newRound + 3 && newRound > 0) {
+        this._resetShoe(ts, `Invalid state: recorded hands (${ts.handNumber}) >= table round + 3 (${newRound + 3})`);
         events.push({
           type: "SHOE_RESET",
           tableName: name,
-          reason: `Recorded hands ${ts.handNumber} exceeds table round ${newRound}`,
+          reason: `Recorded hands ${ts.handNumber} exceeds table round ${newRound} by 3+`,
           finalRound: ts.lastRound
         });
+      } else if (ts.handNumber >= newRound + 2 && newRound > 0) {
+        if (ts.lastWarningHand !== ts.handNumber) {
+          const msg = `[WARNING] ${name}: recorded hands (${ts.handNumber}) is ahead of table UI round (${newRound}). Awaiting correction.`;
+          console.log(`\x1b[33m${msg}\x1b[0m`);
+          sendWhatsAppNotification(msg).catch(err => console.error("WhatsApp Notification failed:", err));
+          ts.lastWarningHand = ts.handNumber;
+        }
       }
 
       // ── Reset deck if mathematically invalid deck size ──
@@ -260,6 +268,7 @@ class TableStateManager {
   _resetShoe(ts, reason) {
     ts.deckComposition = freshShoe();
     ts.handNumber = 0;
+    ts.lastWarningHand = -1;
     ts.bufferedCards = { player: [], banker: [] };
     ts.lastPlayerCards = [];
     ts.lastBankerCards = [];
