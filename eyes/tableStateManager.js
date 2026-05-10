@@ -68,7 +68,7 @@ class TableState {
     this.lastEvResult = null;
     this.bufferedCards = { player: [], banker: [] };
     this.restored = false; // true if loaded from saved state, cleared after first validation
-    this.lastWarningHand = -1; // track warnings to prevent spam
+    this.hasWarnedAhead = false; // track warnings to prevent spam
   }
 
   get remaining() {
@@ -140,12 +140,15 @@ class TableStateManager {
           finalRound: ts.lastRound
         });
       } else if (ts.handNumber >= newRound + 2 && newRound > 0) {
-        if (ts.lastWarningHand !== ts.handNumber) {
+        if (!ts.hasWarnedAhead) {
           const msg = `[WARNING] ${name}: recorded hands (${ts.handNumber}) is ahead of table UI round (${newRound}). Awaiting correction.`;
           console.log(`\x1b[33m${msg}\x1b[0m`);
           sendWhatsAppNotification(msg).catch(err => console.error("WhatsApp Notification failed:", err));
-          ts.lastWarningHand = ts.handNumber;
+          ts.hasWarnedAhead = true;
         }
+      } else {
+        // Reset the flag if the round corrects itself (difference < 2)
+        ts.hasWarnedAhead = false;
       }
 
       // ── Reset deck if mathematically invalid deck size ──
@@ -268,7 +271,7 @@ class TableStateManager {
   _resetShoe(ts, reason) {
     ts.deckComposition = freshShoe();
     ts.handNumber = 0;
-    ts.lastWarningHand = -1;
+    ts.hasWarnedAhead = false;
     ts.bufferedCards = { player: [], banker: [] };
     ts.lastPlayerCards = [];
     ts.lastBankerCards = [];
