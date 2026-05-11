@@ -658,11 +658,11 @@ function startDashboard(stateManager) {
           if (b.roundOutcome !== "T") {
             statsMap[modId].effTurnover += amt;
             totalStats.effTurnover += amt;
-          }
 
-          const evAmt = ev * amt;
-          statsMap[modId].expValue += evAmt;
-          totalStats.expValue += evAmt;
+            const evAmt = ev * amt;
+            statsMap[modId].expValue += evAmt;
+            totalStats.expValue += evAmt;
+          }
         }
 
         // Get current balance of nodes (from activeModules)
@@ -681,7 +681,7 @@ function startDashboard(stateManager) {
 
         const formatStats = (st) => {
           const effRebate = st.effTurnover * 0.012;
-          const avgEv = st.turnover > 0 ? (st.expValue / st.turnover) : 0;
+          const avgEv = st.effTurnover > 0 ? (st.expValue / st.effTurnover) : 0;
           return {
             pnl: st.pnl,
             turnover: st.turnover,

@@ -64,7 +64,7 @@
         if (data.ok) {
            document.getElementById('stats-date-info').textContent = data.dateInfo;
            let html = '<table>';
-           html += '<thead><tr><th style="padding-bottom:10px;">Node</th><th style="text-align:right; padding-bottom:10px;">Bal</th><th style="text-align:right; padding-bottom:10px;">No. of Bets</th><th style="text-align:right; padding-bottom:10px;">Avg Bet</th><th style="text-align:right; padding-bottom:10px;">PNL</th><th style="text-align:right; padding-bottom:10px;">Eff. Turnover</th><th style="text-align:right; padding-bottom:10px;">Eff. Rebate</th><th style="text-align:right; padding-bottom:10px;">Exp. Loss</th><th style="text-align:right; padding-bottom:10px;">Expected EV</th></tr></thead><tbody>';
+           html += '<thead><tr><th style="padding-bottom:10px;">Node</th><th style="text-align:right; padding-bottom:10px;">Bal</th><th style="text-align:right; padding-bottom:10px;">No. of Bets</th><th style="text-align:right; padding-bottom:10px;">Avg Bet</th><th style="text-align:right; padding-bottom:10px;">PNL</th><th style="text-align:right; padding-bottom:10px;">Eff. Turnover</th><th style="text-align:right; padding-bottom:10px;">Eff. Rebate</th><th style="text-align:right; padding-bottom:10px;">Exp. Loss</th><th style="text-align:right; padding-bottom:10px;">Expected Net Profit</th></tr></thead><tbody>';
            
            for (const [node, st] of Object.entries(data.stats.nodes)) {
               html += renderStatRow(node, st);
@@ -97,8 +97,8 @@
        const expEvSign = st.expValue > 0 ? '+' : '';
        const expEvCol = st.expValue > 0 ? 'var(--green)' : 'var(--red)';
        let expEvPercStr = '';
-       if (st.turnover > 0) {
-           const expEvPerc = (st.expValue / st.turnover) * 100;
+       if (st.effTurnover > 0) {
+           const expEvPerc = (st.expValue / st.effTurnover) * 100;
            expEvPercStr = ` <span style="font-size:9px;color:var(--dim);">(${expEvPerc > 0 ? '+' : ''}${expEvPerc.toFixed(2)}%)</span>`;
        }
 
