@@ -147,8 +147,8 @@ class TableStateManager {
           sendWhatsAppNotification(msg).catch(err => console.error("WhatsApp Notification failed:", err));
           ts.hasWarnedAhead = true;
         }
-      } else {
-        // Reset the flag if the round corrects itself (difference < 2)
+      } else if (ts.handNumber <= newRound) {
+        // Reset the flag if the round fully corrects itself
         ts.hasWarnedAhead = false;
       }
 
