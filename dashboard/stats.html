@@ -86,7 +86,7 @@
        const pnlCol = st.pnl > 0 ? 'var(--green)' : (st.pnl < 0 ? 'var(--red)' : 'var(--text)');
        
        const explSign = st.expLoss > 0 ? '+' : '';
-       const explCol = st.expLoss > 0 ? 'var(--red)' : 'var(--green)';
+       const explCol = st.expLoss < 0 ? 'var(--red)' : 'var(--green)';
        
        let explPercStr = '';
        if (st.effTurnover > 0) {

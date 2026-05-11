@@ -687,8 +687,8 @@ function startDashboard(stateManager) {
             turnover: st.turnover,
             effTurnover: st.effTurnover,
             effRebate: effRebate,
-            expLoss: -st.expValue, // requested "expected loss"
-            expValue: st.expValue,
+            expLoss: st.expValue - effRebate, // Game EV (without rebate)
+            expValue: st.expValue, // Net Profit (since EV already includes rebate)
             avgEv: avgEv,
             bal: st.bal,
             betCount: st.betCount || 0,
