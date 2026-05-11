@@ -375,3 +375,46 @@ server.listen(PORT, () => {
   runBetPG(); // start processing loop
   initBrowser(); // start browser lifecycle loop
 });
+
+// --- GRACEFUL SHUTDOWN ---
+// Catch Ctrl+C (SIGINT) and termination signals (SIGTERM)
+async function handleShutdown(signal) {
+  console.log(`\n[Bet Module] Received ${signal}. Initiating graceful shutdown...`);
+  
+  // 1. Instantly stop accepting bets locally
+  isBrowserReady = false; 
+
+  // 2. Send a final synchronous-like heartbeat to Central Server
+  try {
+    const payload = {
+      moduleId: MODULE_ID,
+      baseUrl: BASE_URL,
+      label: currentModuleLabel,
+      // Setting isAcceptingBets to false instantly pulls it out of the Round-Robin pool
+      accounts: [{ label: currentAccountLabel, isAcceptingBets: false, balance: latestBalance }]
+    };
+
+    await fetch(`${CENTRAL_URL}/api/bet-module/heartbeat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    console.log(`[Bet Module] Successfully notified Central Server of shutdown.`);
+  } catch (e) {
+    console.error(`[Bet Module] Failed to notify Central Server:`, e.message);
+  }
+
+  // 3. Cleanly close the browser if it's open
+  if (browserInstance) {
+    console.log(`[Bet Module] Closing browser...`);
+    await browserInstance.close().catch(() => {});
+  }
+
+  // 4. Exit the process
+  console.log(`[Bet Module] Offline. Goodbye!`);
+  process.exit(0);
+}
+
+process.on('SIGINT', () => handleShutdown('SIGINT'));
+process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+
