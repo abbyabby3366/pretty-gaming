@@ -96,9 +96,9 @@ async function checkPGpage(page, logger) {
     logger.warn("Could not find 'Multiplay' button within timeout.");
   }
 
-  // User request: wait 15 more seconds after clicking multiplay before marking as ready
-  logger.log("Waiting 15 more seconds for tables to fully load...");
-  await sleep(15000);
+  // User request: wait 30 more seconds after clicking multiplay before marking as ready
+  logger.log("Waiting 30 more seconds for tables to fully load...");
+  await sleep(30000);
 }
 
 module.exports = {
