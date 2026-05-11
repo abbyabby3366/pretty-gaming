@@ -86,7 +86,7 @@
         <span style="font-weight:600;color:var(--yellow);">Auto Bet</span>
       </label>
       <button onclick="openSettings()" style="background:var(--cyan);color:#000;border:none;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit;font-weight:600;margin-left:5px;">Bet Settings</button>
-      <button onclick="openStats()" style="background:var(--blue);color:white;border:none;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit;font-weight:600;margin-left:5px;">View Stats</button>
+      <button onclick="window.location.href='/stats'" style="background:var(--blue);color:white;border:none;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit;font-weight:600;margin-left:5px;">View Stats</button>
       <a href="/">← Back to Tables</a>
     </div>
   </div>
@@ -541,61 +541,6 @@
         }
       } catch(e) {}
     }
-
-    async function openStats(range = 'today') {
-      document.getElementById('stats-modal').style.display = 'flex';
-      document.getElementById('stats-content').innerHTML = '<div style="padding:20px; color:var(--dim); text-align:center;">Loading stats from database...</div>';
-      document.getElementById('stats-date-info').textContent = 'Loading range...';
-      try {
-        const res = await fetch(`/api/stats?range=${range}`);
-        const data = await res.json();
-        if (data.ok) {
-           document.getElementById('stats-date-info').textContent = data.dateInfo;
-           let html = '<table style="width:100%; border-collapse:collapse; margin-bottom:10px; font-size:11px;">';
-           html += '<thead><tr><th style="padding-bottom:10px;">Node</th><th style="text-align:right; padding-bottom:10px;">Bal</th><th style="text-align:right; padding-bottom:10px;">PNL</th><th style="text-align:right; padding-bottom:10px;">Eff. Turnover</th><th style="text-align:right; padding-bottom:10px;">Eff. Rebate</th><th style="text-align:right; padding-bottom:10px;">Exp. Loss</th><th style="text-align:right; padding-bottom:10px;">Avg EV</th></tr></thead><tbody>';
-           
-           for (const [node, st] of Object.entries(data.stats.nodes)) {
-              html += renderStatRow(node, st);
-           }
-           
-           html += renderStatRow('TOTAL', data.stats.total, true);
-           html += '</tbody></table>';
-           document.getElementById('stats-content').innerHTML = html;
-        } else {
-           document.getElementById('stats-content').innerHTML = '<div style="color:var(--red); padding:20px;">Failed to load stats: ' + data.error + '</div>';
-        }
-      } catch(e) {
-        document.getElementById('stats-content').innerHTML = '<div style="color:var(--red); padding:20px;">Failed to load stats (Network error).</div>';
-      }
-    }
-
-    function renderStatRow(name, st, isTotal=false) {
-       const pnlSign = st.pnl > 0 ? '+' : '';
-       const pnlCol = st.pnl > 0 ? 'var(--green)' : (st.pnl < 0 ? 'var(--red)' : 'var(--text)');
-       
-       const explSign = st.expLoss > 0 ? '+' : '';
-       const explCol = st.expLoss > 0 ? 'var(--red)' : 'var(--green)';
-
-       const evPerc = (st.avgEv * 100).toFixed(2) + '%';
-       const evCol = st.avgEv > 0 ? 'var(--green)' : 'var(--red)';
-
-       return `
-         <tr style="${isTotal ? 'border-top:1px solid rgba(255,255,255,0.1); font-weight:600; background:var(--card);' : ''}">
-           <td style="color:var(--cyan); padding:8px 10px; border-bottom:1px solid rgba(255,255,255,0.05);">${name}</td>
-           <td style="text-align:right; color:var(--text); padding:8px 10px; border-bottom:1px solid rgba(255,255,255,0.05);">${st.bal.toFixed(2)}</td>
-           <td style="text-align:right; color:${pnlCol}; padding:8px 10px; border-bottom:1px solid rgba(255,255,255,0.05);">${pnlSign}${st.pnl.toFixed(2)}</td>
-           <td style="text-align:right; color:var(--text); padding:8px 10px; border-bottom:1px solid rgba(255,255,255,0.05);">${st.effTurnover.toFixed(2)}</td>
-           <td style="text-align:right; color:var(--blue); padding:8px 10px; border-bottom:1px solid rgba(255,255,255,0.05);">+${st.effRebate.toFixed(2)}</td>
-           <td style="text-align:right; color:${explCol}; padding:8px 10px; border-bottom:1px solid rgba(255,255,255,0.05);">${explSign}${st.expLoss.toFixed(2)}</td>
-           <td style="text-align:right; color:${evCol}; padding:8px 10px; border-bottom:1px solid rgba(255,255,255,0.05);">${evPerc}</td>
-         </tr>
-       `;
-    }
-
-    function closeStats() {
-      document.getElementById('stats-modal').style.display = 'none';
-    }
-
     initSettings();
     poll();
     setInterval(poll, 1000);
@@ -644,27 +589,6 @@
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeSettings()">Cancel</button>
         <button class="btn btn-primary" onclick="saveSettings()">Save</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="modal-overlay" id="stats-modal">
-    <div class="modal" style="width:700px;">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-        <h2 style="margin:0; color:var(--cyan);">Performance Stats</h2>
-        <button onclick="closeStats()" style="background:none;border:none;color:var(--text);cursor:pointer;font-size:18px;">&times;</button>
-      </div>
-      <div style="display:flex; gap:10px; margin-bottom:15px; border-bottom:1px solid var(--border); padding-bottom:10px;">
-         <button onclick="openStats('today')" class="btn btn-secondary">Today</button>
-         <button onclick="openStats('yesterday')" class="btn btn-secondary">Yesterday</button>
-         <button onclick="openStats('this_week')" class="btn btn-secondary">This Week</button>
-         <button onclick="openStats('all_time')" class="btn btn-secondary">All Time</button>
-      </div>
-      <div id="stats-date-info" style="color:var(--yellow); font-size:11px; margin-bottom:10px; font-weight:600;"></div>
-      <div id="stats-content" style="max-height:60vh; overflow-y:auto; background:#0d1117; border:1px solid var(--border); border-radius:4px;">
-      </div>
-      <div class="modal-actions" style="margin-top:15px;">
-        <button class="btn btn-secondary" onclick="closeStats()">Close</button>
       </div>
     </div>
   </div>

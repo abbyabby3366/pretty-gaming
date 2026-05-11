@@ -631,17 +631,20 @@ function startDashboard(stateManager) {
         const bets = await dbCollection.find(matchQ).toArray();
 
         const statsMap = {};
-        let totalStats = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0 };
+        let totalStats = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, betCount: 0 };
 
         for (const b of bets) {
           // Use moduleId for aggregation, fall back to label for old bets
           const modId = b.targetModuleId || b.targetModule || "UNKNOWN";
           // Use the human-readable label for display
           const modLabel = b.targetModule || modId;
-          if (!statsMap[modId]) statsMap[modId] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, displayLabel: modLabel };
+          if (!statsMap[modId]) statsMap[modId] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, displayLabel: modLabel, betCount: 0 };
           
           let amt = parseFloat(b.actualBetAmount);
           if (isNaN(amt)) continue;
+
+          statsMap[modId].betCount += 1;
+          totalStats.betCount += 1;
 
           const profit = b.profit || 0;
           const ev = b.ev || 0;
@@ -665,7 +668,7 @@ function startDashboard(stateManager) {
         // Get current balance of nodes (from activeModules)
         for (const m of activeModules.values()) {
            const mid = m.moduleId;
-           if (!statsMap[mid]) statsMap[mid] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, displayLabel: m.label };
+           if (!statsMap[mid]) statsMap[mid] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, displayLabel: m.label, betCount: 0 };
            if (m.accounts && m.accounts[0] && m.accounts[0].balance != null) {
               const cleanBalance = String(m.accounts[0].balance).replace(/[^0-9.-]/g, '');
               const bval = parseFloat(cleanBalance);
@@ -681,11 +684,15 @@ function startDashboard(stateManager) {
           const avgEv = st.turnover > 0 ? (st.expValue / st.turnover) : 0;
           return {
             pnl: st.pnl,
+            turnover: st.turnover,
             effTurnover: st.effTurnover,
             effRebate: effRebate,
             expLoss: -st.expValue, // requested "expected loss"
+            expValue: st.expValue,
             avgEv: avgEv,
-            bal: st.bal
+            bal: st.bal,
+            betCount: st.betCount || 0,
+            avgBet: st.betCount > 0 ? (st.turnover / st.betCount) : 0
           };
         };
 
@@ -879,6 +886,8 @@ function startDashboard(stateManager) {
       filePath = path.join(__dirname, "index.html");
     } else if (req.url === "/bets.html" || req.url === "/bets") {
       filePath = path.join(__dirname, "bets.html");
+    } else if (req.url === "/stats.html" || req.url === "/stats") {
+      filePath = path.join(__dirname, "stats.html");
     } else if (req.url.startsWith("/tables_state.json")) {
       filePath = path.join(ROOT, "eyes", "json", "tables_state.json");
     } else {
