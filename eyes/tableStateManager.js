@@ -126,6 +126,7 @@ class TableStateManager {
           type: "SHOE_RESET",
           tableName: name,
           reason: "Shuffling state detected",
+          isActualShuffle: true,
           finalRound: ts.lastRound
         });
       }
