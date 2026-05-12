@@ -63,6 +63,7 @@ class TableState {
     this.lastRound = 0;
     this.deckComposition = freshShoe(); // 13-slot
     this.handNumber = 0;
+    this.lastFinalizedRound = 0;
     this.lastPlayerCards = [];
     this.lastBankerCards = [];
     this.lastEvResult = null;
@@ -197,9 +198,13 @@ class TableStateManager {
       const isNowWaiting = newState === "Waiting for Bets";
 
       if (wasDealing && isNowWaiting) {
-        const handResult = this._finalizeHand(ts);
+        const hasCards = ts.bufferedCards.player.length > 0 || ts.bufferedCards.banker.length > 0;
+        const roundAdvanced = newRound > ts.lastRound;
 
-        if (handResult.cardsSubtracted > 0) {
+        if ((hasCards || roundAdvanced) && newRound > ts.lastFinalizedRound) {
+          const handResult = this._finalizeHand(ts);
+          ts.lastFinalizedRound = newRound;
+
           events.push({
             type: "HAND_COMPLETE",
             tableName: name,
@@ -213,17 +218,40 @@ class TableStateManager {
             deckComposition: [...ts.deckComposition],
             winner: handResult.winner,
           });
-        } else if (prevState && prevState !== newState) {
-          // State changed but no cards to subtract — still recalculate EV
+        } else {
+          // False flicker or already finalized for this round.
+          // Clear buffered cards to avoid leaking them to the next hand.
+          ts.bufferedCards = { player: [], banker: [] };
+          if (prevState !== newState) {
+            events.push({
+              type: "STATE_CHANGE",
+              tableName: name,
+              tableState: ts,
+              from: prevState,
+              to: newState,
+              round: newRound,
+              deckRemaining: ts.remaining,
+              deckComposition: [...ts.deckComposition],
+            });
+          }
+        }
+      } else if (isNowWaiting && newRound > ts.lastRound && ts.lastRound > 0) {
+        // Missed Dealing completely, but round advanced
+        if (newRound > ts.lastFinalizedRound) {
+          const handResult = this._finalizeHand(ts);
+          ts.lastFinalizedRound = newRound;
           events.push({
-            type: "STATE_CHANGE",
+            type: "HAND_COMPLETE",
             tableName: name,
             tableState: ts,
-            from: prevState,
-            to: newState,
+            handNumber: ts.handNumber,
             round: newRound,
+            playerCards: handResult.playerCards,
+            bankerCards: handResult.bankerCards,
+            cardsSubtracted: handResult.cardsSubtracted,
             deckRemaining: ts.remaining,
             deckComposition: [...ts.deckComposition],
+            winner: handResult.winner,
           });
         }
       }
@@ -272,6 +300,7 @@ class TableStateManager {
   _resetShoe(ts, reason) {
     ts.deckComposition = freshShoe();
     ts.handNumber = 0;
+    ts.lastFinalizedRound = 0;
     ts.hasWarnedAhead = false;
     ts.bufferedCards = { player: [], banker: [] };
     ts.lastPlayerCards = [];
@@ -300,6 +329,7 @@ class TableStateManager {
         lastRound: ts.lastRound,
         deckComposition: ts.deckComposition,
         handNumber: ts.handNumber,
+        lastFinalizedRound: ts.lastFinalizedRound,
         lastPlayerCards: ts.lastPlayerCards,
         lastBankerCards: ts.lastBankerCards,
         lastEvResult: ts.lastEvResult,
@@ -320,6 +350,7 @@ class TableStateManager {
       ts.lastRound = saved.lastRound || 0;
       ts.deckComposition = saved.deckComposition || freshShoe();
       ts.handNumber = saved.handNumber || 0;
+      ts.lastFinalizedRound = saved.lastFinalizedRound || saved.lastRound || 0;
       ts.lastPlayerCards = saved.lastPlayerCards || [];
       ts.lastBankerCards = saved.lastBankerCards || [];
       ts.lastEvResult = saved.lastEvResult || null;

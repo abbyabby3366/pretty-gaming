@@ -98,6 +98,9 @@ function calculateEVForEvents(events, dynamicConfig = {}) {
 function sendSignals(events) {
   for (const event of events) {
     if (event.type === "SHOE_RESET") {
+      const ts = stateManager.getTable(event.tableName);
+      if (ts) ts.currentBetId = null;
+
       if (event.isActualShuffle) {
         fetch("http://localhost:3456/api/telemetry/shuffle", {
           method: "POST",
@@ -148,6 +151,10 @@ function sendSignals(events) {
     // 2. PLACE NEW BET FOR CURRENT ROUND
     // Only place a bet if there is a valid EV edge right now
     if (!ts.lastEvResult || !ts.lastEvResult.best) continue;
+
+    if (ts.currentBetId) {
+      continue; // Bet already pending for this cycle, avoid duplicate dispatch
+    }
 
     // Generate a new UUID for this new betting phase
     ts.currentBetId = crypto.randomUUID();
