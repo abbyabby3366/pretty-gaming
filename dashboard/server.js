@@ -6,6 +6,7 @@ const { MongoClient } = require("mongodb");
 const { sendWhatsAppNotification } = require("../utils/whatsapp_notifier");
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017";
+const MONGODB_NAME = process.env.MONGODB_NAME || "neuron_baccarat";
 let dbCollection = null;
 let dbCollectionShuffles = null;
 
@@ -264,7 +265,7 @@ function startDashboard(stateManager) {
     try {
       const client = new MongoClient(MONGODB_URI);
       await client.connect();
-      const db = client.db("neuron_baccarat");
+      const db = client.db(MONGODB_NAME);
       dbCollection = db.collection("PRETTYGAMING_BETS");
       dbCollectionShuffles = db.collection("PRETTYGAMING_SHUFFLES");
       
