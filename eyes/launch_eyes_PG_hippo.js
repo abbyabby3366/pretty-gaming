@@ -10,6 +10,17 @@ const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
 
 (async () => {
   const accountsPath = path.resolve(__dirname, "json", "eyes_accounts.json");
+  
+  // Reset the login timestamp for this account when the process first launches
+  try {
+    const acctConfig = buildAccountConfig(0, accountsPath);
+    const tsFile = path.resolve(__dirname, "..", "utils", "login_timestamps.json");
+    let timestamps = {};
+    if (fs.existsSync(tsFile)) timestamps = JSON.parse(fs.readFileSync(tsFile, 'utf8'));
+    timestamps[acctConfig.label] = Date.now();
+    fs.writeFileSync(tsFile, JSON.stringify(timestamps, null, 2));
+  } catch (e) {}
+
   const extractorPath = path.join(__dirname, "dom_extractor.js");
   const extractorCode = fs.readFileSync(extractorPath, "utf8");
 

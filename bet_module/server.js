@@ -274,6 +274,17 @@ function scheduleSessionRestart(acctConfig) {
 async function initBrowser() {
   const accountsPath = path.resolve(__dirname, "json", "bet_accounts.json");
   
+  // Reset the login timestamp for this account when the process first launches
+  try {
+    const acctConfig = buildAccountConfig(ACCOUNT_INDEX, accountsPath);
+    const fs = require('fs');
+    const tsFile = path.resolve(__dirname, "..", "utils", "login_timestamps.json");
+    let timestamps = {};
+    if (fs.existsSync(tsFile)) timestamps = JSON.parse(fs.readFileSync(tsFile, 'utf8'));
+    timestamps[acctConfig.label] = Date.now();
+    fs.writeFileSync(tsFile, JSON.stringify(timestamps, null, 2));
+  } catch (e) {}
+  
   while (true) {
     let browserContext = null;
     try {
