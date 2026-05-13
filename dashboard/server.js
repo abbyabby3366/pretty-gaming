@@ -45,7 +45,7 @@ const MAX_BET_LOG = 1000;
 const activeModules = new Map(); // moduleId -> { moduleId, baseUrl, lastHeartbeat, label, isBusy, busySince }
 const cumulativeProfitMap = {}; // keyed by moduleId (stable)
 const todayProfitMap = {};       // keyed by moduleId (stable)
-const STALE_THRESHOLD_MS = 5000;
+const STALE_THRESHOLD_MS = 12000;
 
 // Periodically purge stale modules and send WhatsApp alerts
 setInterval(() => {
@@ -59,7 +59,7 @@ setInterval(() => {
         .catch(err => console.error("WhatsApp notification failed:", err.message));
     }
   }
-}, 2000);
+}, 5000);
 
 function getTodayStart() {
   const now = new Date();
@@ -78,14 +78,14 @@ let lastUsedModuleId = null;      // track which module was last dispatched to
 
 function resolveBetModuleTarget() {
   const now = Date.now();
-  // Filter modules that sent a heartbeat in the last 5 seconds AND are not busy
+  // Filter modules that sent a heartbeat in the last 12 seconds AND are not busy
   let online = Array.from(activeModules.values()).filter(m => {
     // Timeout stuck busy modules (e.g. > 60s)
     if (m.isBusy && m.busySince && now - m.busySince > 60000) {
       m.isBusy = false;
       m.busySince = null;
     }
-    return now - m.lastHeartbeat < 5000 && !m.isBusy;
+    return now - m.lastHeartbeat < 12000 && !m.isBusy;
   });
   
   if (betConfig.minAccountBalance != null && betConfig.minAccountBalance > 0) {

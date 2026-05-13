@@ -369,7 +369,7 @@ server.on('error', (err) => {
 
 server.listen(PORT, () => {
   console.log(`[Bet Module] 🟢 Online on ${BASE_URL} | Account Index: ${ACCOUNT_INDEX} | Targeting Central: ${CENTRAL_URL}`);
-  setInterval(sendHeartbeat, 2000);
+  setInterval(sendHeartbeat, 5000);
   setInterval(updateBalance, 5000); // Check balance periodically
   sendHeartbeat(); // initial heartbeat
   runBetPG(); // start processing loop
