@@ -291,6 +291,18 @@ function startDashboard(stateManager) {
         cumulativeProfitMap[r._id] = r.total;
       }
 
+      // Populate today's profit immediately
+      try {
+        const todayStartStr = getTodayStart().toISOString();
+        const todayAgg = await dbCollection.aggregate([
+          { $match: { profit: { $ne: null }, time: { $gte: todayStartStr } } },
+          { $group: { _id: { $ifNull: ["$targetModuleId", "$targetModule"] }, total: { $sum: "$profit" } } }
+        ]).toArray();
+        for (const r of todayAgg) todayProfitMap[r._id] = r.total;
+      } catch (e) {
+        console.error("[MongoDB] Failed to initialize today profit:", e.message);
+      }
+
       // Periodically update today's profit
       setInterval(async () => {
         try {
@@ -800,30 +812,12 @@ function startDashboard(stateManager) {
 
         let totalBets = 0;
         let paginatedBets = [];
-        if (dbCollection) {
-           totalBets = await dbCollection.countDocuments(matchQ);
-           paginatedBets = await dbCollection.find(matchQ).sort({ time: -1 }).skip(skip).limit(limit).toArray();
-        } else {
-           let filtered = betLog;
-           if (statusFilter !== 'ALL') {
-              if (statusFilter === 'NON_SUCCESS') {
-                 filtered = filtered.filter(b => b.outcome !== 'SUCCESS');
-              } else {
-                 filtered = filtered.filter(b => b.outcome === statusFilter);
-              }
-           }
-           if (outcomeFilter !== 'ALL') {
-              filtered = filtered.filter(b => b.roundOutcome === outcomeFilter);
-           }
-           if (startFilter) {
-              filtered = filtered.filter(b => b.time >= startFilter);
-           }
-           if (endFilter) {
-              filtered = filtered.filter(b => b.time <= endFilter);
-           }
-           totalBets = filtered.length;
-           paginatedBets = filtered.slice(skip, skip + limit);
+        if (!dbCollection) {
+           throw new Error("DB not connected yet");
         }
+        
+        totalBets = await dbCollection.countDocuments(matchQ);
+        paginatedBets = await dbCollection.find(matchQ).sort({ time: -1 }).skip(skip).limit(limit).toArray();
 
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ 
