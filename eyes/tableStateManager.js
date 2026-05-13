@@ -252,7 +252,9 @@ class TableStateManager {
       }
 
       // ── Reset deck if mathematically invalid deck size ──
-      const minExpectedCards = 416 - (newRound * 6);
+      // Add +1 buffer (6 extra cards) to account for initial casino burn cards
+      const effectiveRound = Math.max(newRound, ts.handNumber);
+      const minExpectedCards = 416 - ((effectiveRound + 1) * 6);
       if (ts.remaining < minExpectedCards && newState !== "Shuffling") {
         this._resetShoe(ts, `Invalid state: cards left (${ts.remaining}) < expected min (${minExpectedCards}) for round ${newRound}`);
         events.push({
