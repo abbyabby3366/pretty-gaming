@@ -127,11 +127,16 @@ async function runBetPG() {
       if (!success) {
         consecutiveBetErrors++;
         if (consecutiveBetErrors >= 3) {
-          if (currentAccountLabel && currentAccountLabel.includes("964")) {
-            sendWhatsAppNotification(
-              `[ALERT] Bet module "${currentAccountLabel}" encountered 3 consecutive bet errors. Last reason: ${reason || "None"}`
-            ).catch(err => console.error("WhatsApp notification failed:", err.message));
+          sendWhatsAppNotification(
+            `[ALERT] Bet module "${currentAccountLabel}" encountered 3 consecutive bet errors. Last reason: ${reason || "None"}`
+          ).catch(err => console.error("WhatsApp notification failed:", err.message));
+          
+          console.log(`[ALERT] 3 consecutive errors. Closing tab to force restart.`);
+          isIntentionalRestart = true;
+          if (browserPage && !browserPage.isClosed()) {
+            browserPage.close().catch(() => {});
           }
+
           consecutiveBetErrors = 0;
         }
       } else {
