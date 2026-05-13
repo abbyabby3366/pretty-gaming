@@ -42,8 +42,14 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function buildAccountConfig(accountIndex = 0, accountsFilePath) {
+function buildAccountConfig(accountIndex = 0, accountsFilePath, modulePrefix = "") {
   const accountsFile = accountsFilePath || path.resolve(__dirname, "..", "bet_module", "json", "bet_accounts.json");
+  
+  let prefix = modulePrefix;
+  if (!prefix) {
+    prefix = accountsFile.includes("eyes_accounts") ? "EYES" : "BET";
+  }
+
   let accounts = [];
   try { accounts = JSON.parse(fs.readFileSync(accountsFile, "utf8")); } catch (err) {}
   
@@ -58,6 +64,7 @@ function buildAccountConfig(accountIndex = 0, accountsFilePath) {
 
   return {
     accountIndex,
+    modulePrefix: prefix,
     label: account.label || `Account ${accountIndex}`,
     platform,
     launchMethod,
@@ -135,8 +142,10 @@ async function evaluateState(browser, urls) {
 
 
 async function launchAccount(acctConfig) {
-  const { chrome, credentials, urls, platform, launchMethod } = acctConfig;
+  const { chrome, credentials, urls, platform, launchMethod, modulePrefix } = acctConfig;
   const logger = { log: (msg) => console.log(`[${acctConfig.label}] ${msg}`), warn: (msg) => console.warn(`[${acctConfig.label}] ${msg}`), error: (msg) => console.error(`[${acctConfig.label}] ${msg}`) };
+
+  const prefix = modulePrefix || "BET";
 
   if (platform === "winbox" && (!credentials.email || !credentials.password)) {
       throw new Error("Missing Winbox credentials. Please set WINBOX_EMAIL and WINBOX_PASSWORD in .env");
@@ -149,7 +158,11 @@ async function launchAccount(acctConfig) {
           headless: false,
           defaultViewport: null,
           protocolTimeout: 30000,
-          args: chrome.extraArgs,
+          args: [
+            `--window-size=${process.env[`${prefix}_WINDOW_SIZE`] || process.env.CHROME_WINDOW_SIZE || "900,1400"}`,
+            `--window-position=${process.env[`${prefix}_WINDOW_POSITION`] || process.env.CHROME_WINDOW_POSITION || "100,50"}`,
+            ...chrome.extraArgs
+          ],
       });
   } else {
       try {
@@ -172,6 +185,8 @@ async function launchAccount(acctConfig) {
       `--remote-debugging-port=${chrome.remoteDebuggingPort}`,
       `--user-data-dir=${chrome.userDataDir}`,
       "--no-first-run", "--no-default-browser-check", "--mute-audio",
+      `--window-size=${process.env[`${prefix}_WINDOW_SIZE`] || process.env.CHROME_WINDOW_SIZE || "900,1400"}`,
+      `--window-position=${process.env[`${prefix}_WINDOW_POSITION`] || process.env.CHROME_WINDOW_POSITION || "100,50"}`,
       ...chrome.extraArgs,
     ];
     const chromeProcess = spawn(chrome.executablePath, chromeArgs, { detached: true, stdio: "ignore" });

@@ -28,12 +28,7 @@ function getBrowserArgs() {
         ]),
   ];
 
-  const windowSize = process.env.CHROME_WINDOW_SIZE || "1920,1080";
-  const windowPosition = process.env.CHROME_WINDOW_POSITION || "0,0";
-
   return [
-    `--window-size=${windowSize}`,
-    `--window-position=${windowPosition}`,
     "--mute-audio",
     "--force-device-scale-factor=1",
     "--high-dpi-support=1",
