@@ -201,16 +201,21 @@ class TableStateManager {
         const hasCards = ts.bufferedCards.player.length > 0 || ts.bufferedCards.banker.length > 0;
         const roundAdvanced = newRound > ts.lastRound;
 
-        if ((hasCards || roundAdvanced) && newRound > ts.lastFinalizedRound) {
+        if (hasCards || roundAdvanced) {
           const handResult = this._finalizeHand(ts);
-          ts.lastFinalizedRound = newRound;
+          
+          // Determine logical upcoming round.
+          // If UI round is laggy (still shows the old round), we use lastRound + 1.
+          const logicalNextRound = Math.max(newRound, ts.lastRound + 1);
+          
+          ts.lastFinalizedRound = Math.max(ts.lastFinalizedRound, logicalNextRound);
 
           events.push({
             type: "HAND_COMPLETE",
             tableName: name,
             tableState: ts,
             handNumber: ts.handNumber,
-            round: newRound,
+            round: logicalNextRound,
             playerCards: handResult.playerCards,
             bankerCards: handResult.bankerCards,
             cardsSubtracted: handResult.cardsSubtracted,
@@ -219,8 +224,7 @@ class TableStateManager {
             winner: handResult.winner,
           });
         } else {
-          // False flicker or already finalized for this round.
-          // Clear buffered cards to avoid leaking them to the next hand.
+          // False flicker. Clear buffered cards to avoid leaking them to the next hand.
           ts.bufferedCards = { player: [], banker: [] };
           if (prevState !== newState) {
             events.push({
@@ -236,10 +240,11 @@ class TableStateManager {
           }
         }
       } else if (isNowWaiting && newRound > ts.lastRound && ts.lastRound > 0) {
-        // Missed Dealing completely, but round advanced
+        // Missed Dealing completely, but round advanced.
+        // Only finalize if the new round is ahead of the round we last prepared for.
         if (newRound > ts.lastFinalizedRound) {
           const handResult = this._finalizeHand(ts);
-          ts.lastFinalizedRound = newRound;
+          ts.lastFinalizedRound = Math.max(ts.lastFinalizedRound, newRound);
           events.push({
             type: "HAND_COMPLETE",
             tableName: name,
