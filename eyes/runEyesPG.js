@@ -156,6 +156,10 @@ function sendSignals(events) {
       continue; // Bet already pending for this cycle, avoid duplicate dispatch
     }
 
+    // Do not place a new bet if the shoe is currently resetting
+    const hasReset = events.some(e => e.type === "SHOE_RESET" && e.tableName === event.tableName);
+    if (hasReset) continue;
+
     // Generate a new UUID for this new betting phase
     ts.currentBetId = crypto.randomUUID();
 
