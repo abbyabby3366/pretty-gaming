@@ -891,6 +891,8 @@ function startDashboard(stateManager) {
       filePath = path.join(__dirname, "stats.html");
     } else if (req.url.startsWith("/tables_state.json")) {
       filePath = path.join(ROOT, "eyes", "json", "tables_state.json");
+    } else if (req.url === "/favicon.ico") {
+      filePath = path.join(__dirname, "favicon.ico");
     } else {
       res.writeHead(404);
       res.end("Not found");
@@ -898,7 +900,9 @@ function startDashboard(stateManager) {
     }
 
     const ext = path.extname(filePath);
-    const contentType = ext === ".html" ? "text/html" : "application/json";
+    let contentType = "application/json";
+    if (ext === ".html") contentType = "text/html";
+    else if (ext === ".ico") contentType = "image/x-icon";
 
     fs.readFile(filePath, (err, data) => {
       if (err) {
