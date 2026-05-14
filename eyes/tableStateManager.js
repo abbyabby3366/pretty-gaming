@@ -14,6 +14,7 @@
  */
 
 const { sendWhatsAppNotification } = require('../utils/whatsapp_notifier');
+const { checkTickValidations, checkWarningNeeded, checkImpossibleCard, checkGhostHands } = require('./stateValidators');
 
 // ─── Card Name → 13-slot Rank Index ─────────────────────────────────────
 // Index: 0=A, 1=2, 2=3, 3=4, 4=5, 5=6, 6=7, 7=8, 8=9, 9=T, 10=J, 11=Q, 12=K
@@ -71,6 +72,7 @@ class TableState {
     this.currentBetId = null;
     this.restored = false; // true if loaded from saved state, cleared after first validation
     this.hasWarnedAhead = false; // track warnings to prevent spam
+    this.consecutiveZeroCardHands = 0;
   }
 
   get remaining() {
@@ -103,6 +105,33 @@ class TableStateManager {
       const prevState = ts.lastState;
       const newState = table.state;
       const newRound = table.round;
+
+      const processHandResult = (handResult, targetRound) => {
+        if (handResult.corruptedReason) {
+          this._resetShoe(ts, handResult.corruptedReason);
+          events.push({
+            type: "SHOE_RESET",
+            tableName: name,
+            reason: handResult.corruptedReason,
+            finalRound: ts.lastRound
+          });
+        } else {
+          ts.lastFinalizedRound = Math.max(ts.lastFinalizedRound, targetRound);
+          events.push({
+            type: "HAND_COMPLETE",
+            tableName: name,
+            tableState: ts,
+            handNumber: ts.handNumber,
+            round: targetRound,
+            playerCards: handResult.playerCards,
+            bankerCards: handResult.bankerCards,
+            cardsSubtracted: handResult.cardsSubtracted,
+            deckRemaining: ts.remaining,
+            deckComposition: [...ts.deckComposition],
+            winner: handResult.winner,
+          });
+        }
+      };
 
       // ── Buffer cards during Dealing / Result states ──
       if (
@@ -148,21 +177,7 @@ class TableStateManager {
           // If UI round is laggy (still shows the old round), we use lastRound + 1.
           const logicalNextRound = Math.max(newRound, ts.lastRound + 1);
           
-          ts.lastFinalizedRound = Math.max(ts.lastFinalizedRound, logicalNextRound);
-
-          events.push({
-            type: "HAND_COMPLETE",
-            tableName: name,
-            tableState: ts,
-            handNumber: ts.handNumber,
-            round: logicalNextRound,
-            playerCards: handResult.playerCards,
-            bankerCards: handResult.bankerCards,
-            cardsSubtracted: handResult.cardsSubtracted,
-            deckRemaining: ts.remaining,
-            deckComposition: [...ts.deckComposition],
-            winner: handResult.winner,
-          });
+          processHandResult(handResult, logicalNextRound);
         } else {
           // False flicker. Clear buffered cards to avoid leaking them to the next hand.
           ts.bufferedCards = { player: [], banker: [] };
@@ -184,41 +199,21 @@ class TableStateManager {
         // Only finalize if the new round is ahead of the round we last prepared for.
         if (newRound > ts.lastFinalizedRound) {
           const handResult = this._finalizeHand(ts);
-          ts.lastFinalizedRound = Math.max(ts.lastFinalizedRound, newRound);
-          events.push({
-            type: "HAND_COMPLETE",
-            tableName: name,
-            tableState: ts,
-            handNumber: ts.handNumber,
-            round: newRound,
-            playerCards: handResult.playerCards,
-            bankerCards: handResult.bankerCards,
-            cardsSubtracted: handResult.cardsSubtracted,
-            deckRemaining: ts.remaining,
-            deckComposition: [...ts.deckComposition],
-            winner: handResult.winner,
-          });
+          processHandResult(handResult, newRound);
         }
       }
 
-      // ── Validate restored state on first tick ──
+      // ── External Validations for the tick ──
+      const tickInvalidReason = checkTickValidations(ts, newRound, newState, prevState);
+
       if (ts.restored) {
         ts.restored = false;
-
-        if (newRound < ts.lastRound) {
-          this._resetShoe(ts, `Stale state: round went from ${ts.lastRound} → ${newRound}`);
-          events.push({
-            type: "SHOE_RESET",
-            tableName: name,
-            reason: `Round dropped ${ts.lastRound} → ${newRound} after restore`,
-            finalRound: ts.lastRound
-          });
-        } else {
+        if (!tickInvalidReason && newRound >= ts.lastRound) {
           console.log(`\x1b[36m[STATE] ${name}: Validated (saved R${ts.lastRound} → live R${newRound})\x1b[0m`);
         }
       }
 
-      // ── Reset deck on shuffling ──
+      // ── Reset deck on shuffling or invalid state ──
       if (newState === "Shuffling" && prevState !== "Shuffling") {
         this._resetShoe(ts, "Shuffling detected");
         events.push({
@@ -228,41 +223,25 @@ class TableStateManager {
           isActualShuffle: true,
           finalRound: ts.lastRound
         });
-      }
-
-      // ── Reset or warn if recorded hands exceed current round ──
-      if (ts.handNumber >= newRound + 3 && newRound > 0) {
-        this._resetShoe(ts, `Invalid state: recorded hands (${ts.handNumber}) >= table round + 3 (${newRound + 3})`);
+      } else if (tickInvalidReason) {
+        this._resetShoe(ts, tickInvalidReason);
         events.push({
           type: "SHOE_RESET",
           tableName: name,
-          reason: `Recorded hands ${ts.handNumber} exceeds table round ${newRound} by 3+`,
+          reason: tickInvalidReason,
           finalRound: ts.lastRound
         });
-      } else if (ts.handNumber >= newRound + 2 && newRound > 0) {
-        if (!ts.hasWarnedAhead) {
-          const msg = `[WARNING] ${name}: recorded hands (${ts.handNumber}) is ahead of table UI round (${newRound}). Awaiting correction.`;
-          console.log(`\x1b[33m${msg}\x1b[0m`);
-          sendWhatsAppNotification(msg).catch(err => console.error("WhatsApp Notification failed:", err));
-          ts.hasWarnedAhead = true;
+      } else {
+        if (checkWarningNeeded(ts, newRound)) {
+          if (!ts.hasWarnedAhead) {
+            const msg = `[WARNING] ${name}: recorded hands (${ts.handNumber}) is ahead of table UI round (${newRound}). Awaiting correction.`;
+            console.log(`\x1b[33m${msg}\x1b[0m`);
+            sendWhatsAppNotification(msg).catch(err => console.error("WhatsApp Notification failed:", err));
+            ts.hasWarnedAhead = true;
+          }
+        } else if (ts.handNumber <= newRound) {
+          ts.hasWarnedAhead = false;
         }
-      } else if (ts.handNumber <= newRound) {
-        // Reset the flag if the round fully corrects itself
-        ts.hasWarnedAhead = false;
-      }
-
-      // ── Reset deck if mathematically invalid deck size ──
-      // Add +1 buffer (6 extra cards) to account for initial casino burn cards
-      const effectiveRound = Math.max(newRound, ts.handNumber);
-      const minExpectedCards = 416 - ((effectiveRound + 1) * 6);
-      if (ts.remaining < minExpectedCards && newState !== "Shuffling") {
-        this._resetShoe(ts, `Invalid state: cards left (${ts.remaining}) < expected min (${minExpectedCards}) for round ${newRound}`);
-        events.push({
-          type: "SHOE_RESET",
-          tableName: name,
-          reason: `Deck size ${ts.remaining} is too low for round ${newRound}`,
-          finalRound: ts.lastRound
-        });
       }
 
       ts.lastState = newState;
@@ -281,13 +260,30 @@ class TableStateManager {
     const allCards = [...pCards, ...bCards];
 
     let cardsSubtracted = 0;
+    let corruptedReason = null;
 
     for (const card of allCards) {
       const idx = cardRankToIndex(card);
-      if (idx >= 0 && ts.deckComposition[idx] > 0) {
-        ts.deckComposition[idx]--;
+      if (idx >= 0) {
+        const impReason = checkImpossibleCard(ts.deckComposition, idx, card);
+        if (impReason && !corruptedReason) {
+          corruptedReason = impReason;
+        }
+        if (ts.deckComposition[idx] > 0) {
+          ts.deckComposition[idx]--;
+        }
         cardsSubtracted++;
       }
+    }
+
+    if (cardsSubtracted === 0) {
+      ts.consecutiveZeroCardHands++;
+      const ghostReason = checkGhostHands(ts.consecutiveZeroCardHands);
+      if (ghostReason && !corruptedReason) {
+        corruptedReason = ghostReason;
+      }
+    } else {
+      ts.consecutiveZeroCardHands = 0;
     }
 
     // Determine winner from the result state if available
@@ -303,7 +299,7 @@ class TableStateManager {
     ts.lastBankerCards = bCards.slice();
     ts.bufferedCards = { player: [], banker: [] };
 
-    return { playerCards: pCards, bankerCards: bCards, cardsSubtracted, winner };
+    return { playerCards: pCards, bankerCards: bCards, cardsSubtracted, winner, corruptedReason };
   }
 
   _resetShoe(ts, reason) {
@@ -311,6 +307,7 @@ class TableStateManager {
     ts.handNumber = 0;
     ts.lastFinalizedRound = 0;
     ts.hasWarnedAhead = false;
+    ts.consecutiveZeroCardHands = 0;
     ts.bufferedCards = { player: [], banker: [] };
     ts.lastPlayerCards = [];
     ts.lastBankerCards = [];
@@ -344,6 +341,7 @@ class TableStateManager {
         lastEvResult: ts.lastEvResult,
         bufferedCards: ts.bufferedCards,
         currentBetId: ts.currentBetId,
+        consecutiveZeroCardHands: ts.consecutiveZeroCardHands,
       };
     }
     return data;
@@ -366,6 +364,7 @@ class TableStateManager {
       ts.lastEvResult = saved.lastEvResult || null;
       ts.bufferedCards = saved.bufferedCards || { player: [], banker: [] };
       ts.currentBetId = saved.currentBetId || null;
+      ts.consecutiveZeroCardHands = saved.consecutiveZeroCardHands || 0;
       ts.restored = true; // mark for validation on first live tick
       this.tables.set(name, ts);
     }
