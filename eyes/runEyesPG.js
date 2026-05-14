@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const { scrapePG } = require("./scrapePG");
 const { TableStateManager } = require("./tableStateManager");
 const { calculateEV } = require("./evCalculator");
+const { sendWhatsAppNotification } = require("../utils/whatsapp_notifier");
 
 const stateManager = new TableStateManager();
 const eventLog = []; // In-memory event log, max 100 entries
@@ -151,6 +152,16 @@ function sendSignals(events) {
     // 2. PLACE NEW BET FOR CURRENT ROUND
     // Only place a bet if there is a valid EV edge right now
     if (!ts.lastEvResult || !ts.lastEvResult.best) continue;
+
+    const maxEv = Math.max(ts.lastEvResult.ev_player || 0, ts.lastEvResult.ev_banker || 0, ts.lastEvResult.ev_tie || 0);
+    if (maxEv > 0.006) {
+      if (ts.lastWarnedEvRound !== event.round) {
+        const msg = `[WARNING] ${event.tableName} (Round ${event.round}): Abnormal EV detected (${(maxEv * 100).toFixed(3)}% > 0.6%). Deck size might be out of sync (Remaining: ${ts.remaining})`;
+        console.log(`\x1b[33m${msg}\x1b[0m`);
+        sendWhatsAppNotification(msg).catch(() => {});
+        ts.lastWarnedEvRound = event.round;
+      }
+    }
 
     if (ts.currentBetId) {
       continue; // Bet already pending for this cycle, avoid duplicate dispatch
