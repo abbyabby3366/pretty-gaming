@@ -107,6 +107,67 @@ async function evaluateState(browser, urls) {
     try {
       const url = p.url() || "";
 
+      // Check for "Session timeout" overlay — blocks all interactions.
+      // Dismissing and reloading clears the overlay and forces re-login.
+      let sessionBox = null;
+      let boxText = "";
+      for (const frame of p.frames()) {
+        sessionBox = await frame.$(".el-message-box").catch(() => null);
+        if (sessionBox) {
+          boxText = await frame
+            .evaluate((el) => el.innerText, sessionBox)
+            .catch(() => "");
+          break;
+        }
+      }
+
+      if (sessionBox) {
+        const lowerText = boxText.toLowerCase();
+        if (
+          lowerText.includes("session timeout") ||
+          lowerText.includes("access denied") ||
+          lowerText.includes("another device") ||
+          lowerText.includes("logged out")
+        ) {
+          console.log(`[evaluateState] Session timeout overlay detected — dismissing and reloading...`);
+
+          // Strategy 1: Click OK button via child selector
+          let dismissed = false;
+          const okBtn = await sessionBox
+            .$(".el-message-box__btns button")
+            .catch(() => null);
+          if (okBtn) {
+            await okBtn.click().catch(() => {});
+            dismissed = true;
+          }
+
+          // Strategy 2: Try frame-level selector fallback
+          if (!dismissed) {
+            for (const frame of p.frames()) {
+              try {
+                const clicked = await frame.evaluate(() => {
+                  const btn =
+                    document.querySelector(".el-message-box__btns button") ||
+                    document.querySelector(".el-message-box__btns .el-button--primary");
+                  if (btn) { btn.click(); return true; }
+                  const allBtns = document.querySelectorAll(".el-message-box button");
+                  for (const b of allBtns) {
+                    if (/OK|Confirm/i.test(b.textContent)) { b.click(); return true; }
+                  }
+                  return false;
+                });
+                if (clicked) { dismissed = true; break; }
+              } catch (e) {}
+            }
+          }
+
+          await sleep(1000);
+          await p.reload({ waitUntil: "networkidle2", timeout: 30000 }).catch(() => {});
+          await sleep(2000);
+          continue; // Re-evaluate this page's state after reload
+        }
+      }
+
       // Check if we reached the pretty gaming lobby
       if (urls.pgLobby.some(domain => url.includes(domain))) {
         return { state: STATES.IN_GAME, page: p };
