@@ -146,7 +146,7 @@ function sendSignals(events) {
       })
       .then(res => res.json())
       .then(data => {
-        console.log(`  \x1b[36m[ROUND RESULTS] Sent to Central: ${data.action} (BetId: ${lastBetId})\x1b[0m`);
+        // console.log(`  \\x1b[36m[ROUND RESULTS] Sent to Central: ${data.action} (BetId: ${lastBetId})\\x1b[0m`);
       })
       .catch(err => {
         console.log(`  \x1b[31m[ROUND RESULTS] Failed to send to Central: ${err.message}\x1b[0m`);
@@ -209,7 +209,7 @@ function sendSignals(events) {
     })
     .then(res => res.json())
     .then(data => {
-      console.log(`  \x1b[35m[SIGNAL] Sent to Central: ${data.action} (BetId: ${data.betId || ts.currentBetId})\x1b[0m`);
+      // console.log(`  \\x1b[35m[SIGNAL] Sent to Central: ${data.action} (BetId: ${data.betId || ts.currentBetId})\\x1b[0m`);
     })
     .catch(err => {
       console.log(`  \x1b[31m[SIGNAL] Failed to send to Central: ${err.message}\x1b[0m`);
