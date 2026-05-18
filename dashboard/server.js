@@ -395,7 +395,6 @@ function startDashboard(stateManager) {
       }, 5000);
 
       updateSuccessRates();
-      setInterval(updateSuccessRates, 10000);
     } catch (err) {
       console.error("[MongoDB] Failed to connect:", err.message);
     }
@@ -840,6 +839,18 @@ function startDashboard(stateManager) {
 
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: true, stats: sortedDays }));
+      } catch (e) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+      return;
+    }
+
+    if (req.method === "POST" && req.url.startsWith("/api/refresh-success-rate")) {
+      try {
+        await updateSuccessRates();
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, successRates: cachedSuccessRates }));
       } catch (e) {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: false, error: e.message }));
