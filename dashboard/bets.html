@@ -456,6 +456,8 @@
         
         // Render Modules
         const modules = betsData.activeModules || [];
+        const successRates = betsData.successRates || {};
+        const fmtPct = (val) => val != null ? parseFloat((val * 100).toFixed(4)) + '%' : '—';
         const now = Date.now();
         let modHtml = '';
         if (modules.length === 0) {
@@ -499,15 +501,20 @@
             const profitSignToday = profitToday > 0 ? '+' : '';
             const profitColorToday = profitToday > 0 ? 'var(--green)' : (profitToday < 0 ? 'var(--red)' : 'var(--text)');
 
+            const modRate = successRates.moduleLast1000 ? successRates.moduleLast1000[headerLabel] : null;
+
             modHtml += `
               <div class="module-card">
                 <div class="m-title">
                   <span>${headerLabel}</span>
                   <span class="status-dot status-online" title="Last seen ${Math.round((now - m.lastHeartbeat)/1000)}s ago"></span>
                 </div>
-                <div class="m-url" style="display:flex; justify-content:flex-end; gap:12px; margin-bottom:4px;">
-                  <span style="color:${profitColorToday}; font-weight:600;" title="Today's P/L (Since 12 PM)">Today: ${profitSignToday}${profitToday.toFixed(2)}</span>
-                  <span style="color:${profitColorAll}; font-weight:600;" title="All-Time P/L">All Time: ${profitSignAll}${profitAll.toFixed(2)}</span>
+                <div class="m-url" style="display:flex; justify-content:space-between; gap:12px; margin-bottom:4px;">
+                  <span style="color:var(--purple); font-weight:600;" title="Execution Success Rate (Last 1k Bets)">SR: <span style="color:white">${fmtPct(modRate)}</span></span>
+                  <div style="display:flex; gap:12px;">
+                    <span style="color:${profitColorToday}; font-weight:600;" title="Today's P/L (Since 12 PM)">Today: ${profitSignToday}${profitToday.toFixed(2)}</span>
+                    <span style="color:${profitColorAll}; font-weight:600;" title="All-Time P/L">All Time: ${profitSignAll}${profitAll.toFixed(2)}</span>
+                  </div>
                 </div>
                 ${acctHtml}
               </div>
@@ -515,9 +522,6 @@
           }
         }
         document.getElementById('modules-panel').innerHTML = modHtml;
-
-        const successRates = betsData.successRates || {};
-        const fmtPct = (val) => val != null ? (val * 100).toFixed(1) + '%' : '—';
         
         let srHtml = `
           <div style="color:var(--purple);font-weight:600;margin-right:10px;">Execution Success Rate:</div>
@@ -526,13 +530,6 @@
           <div>Last 10K: <strong style="color:white;">${fmtPct(successRates.last10000)}</strong></div>
           <div>All Time: <strong style="color:white;">${fmtPct(successRates.allTime)}</strong></div>
         `;
-        
-        if (successRates.moduleLast1000 && Object.keys(successRates.moduleLast1000).length > 0) {
-          srHtml += `<div style="margin-left:10px;margin-right:10px;color:var(--border);">|</div><div style="color:var(--purple);font-weight:600;">Module Success (Last 1K):</div>`;
-          for (const [mod, rate] of Object.entries(successRates.moduleLast1000)) {
-            srHtml += `<div>${mod}: <strong style="color:white;">${fmtPct(rate)}</strong></div>`;
-          }
-        }
         document.getElementById('success-rates-panel').innerHTML = srHtml;
 
         currentActiveModules = betsData.activeModules || [];

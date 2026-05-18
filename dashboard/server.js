@@ -53,7 +53,7 @@ async function updateSuccessRates() {
   if (!dbCollection) return;
   try {
     const validOutcomes = ["SUCCESS", "WRONG_AMOUNT", "UNPLACED", "NETWORK_ERROR", "DISPATCH_FAILED", "FAILED"];
-    const successOutcomes = ["SUCCESS", "WRONG_AMOUNT"];
+    const successOutcomes = ["SUCCESS"];
 
     const bets = await dbCollection.find({ outcome: { $in: validOutcomes } })
       .sort({ time: -1 })
