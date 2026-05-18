@@ -41,6 +41,84 @@ const betLog = [];
 const centralBetQueue = [];
 const MAX_BET_LOG = 1000;
 
+let cachedSuccessRates = {
+  last100: null,
+  last1000: null,
+  last10000: null,
+  allTime: null,
+  moduleLast1000: {}
+};
+
+async function updateSuccessRates() {
+  if (!dbCollection) return;
+  try {
+    const validOutcomes = ["SUCCESS", "WRONG_AMOUNT", "UNPLACED", "NETWORK_ERROR", "DISPATCH_FAILED", "FAILED"];
+    const successOutcomes = ["SUCCESS", "WRONG_AMOUNT"];
+
+    const bets = await dbCollection.find({ outcome: { $in: validOutcomes } })
+      .sort({ time: -1 })
+      .limit(10000)
+      .project({ outcome: 1, targetModuleId: 1, targetModule: 1 })
+      .toArray();
+
+    let s100 = 0, t100 = 0;
+    let s1000 = 0, t1000 = 0;
+    let s10000 = 0, t10000 = bets.length;
+    let modStats = {};
+
+    for (let i = 0; i < bets.length; i++) {
+      const b = bets[i];
+      const isSuccess = successOutcomes.includes(b.outcome);
+      
+      if (isSuccess) s10000++;
+
+      if (i < 100) {
+        t100++;
+        if (isSuccess) s100++;
+      }
+      if (i < 1000) {
+        t1000++;
+        if (isSuccess) s1000++;
+        
+        const modId = b.targetModuleId || b.targetModule || "UNKNOWN";
+        const modLabel = b.targetModule || modId;
+        if (!modStats[modLabel]) modStats[modLabel] = { s: 0, t: 0 };
+        modStats[modLabel].t++;
+        if (isSuccess) modStats[modLabel].s++;
+      }
+    }
+
+    const allTimeAgg = await dbCollection.aggregate([
+      { $match: { outcome: { $in: validOutcomes } } },
+      { $group: {
+          _id: { $in: ["$outcome", successOutcomes] },
+          count: { $sum: 1 }
+      }}
+    ]).toArray();
+
+    let allSuccess = 0;
+    let allTotal = 0;
+    for (const r of allTimeAgg) {
+      allTotal += r.count;
+      if (r._id === true) allSuccess += r.count;
+    }
+
+    cachedSuccessRates = {
+      last100: t100 > 0 ? (s100 / t100) : null,
+      last1000: t1000 > 0 ? (s1000 / t1000) : null,
+      last10000: t10000 > 0 ? (s10000 / t10000) : null,
+      allTime: allTotal > 0 ? (allSuccess / allTotal) : null,
+      moduleLast1000: {}
+    };
+
+    for (const [mod, stat] of Object.entries(modStats)) {
+      cachedSuccessRates.moduleLast1000[mod] = stat.t > 0 ? (stat.s / stat.t) : null;
+    }
+  } catch (e) {
+    console.error("[Stats] Failed to update success rates:", e.message);
+  }
+}
+
 // Track active bet modules via heartbeat
 const activeModules = new Map(); // moduleId -> { moduleId, baseUrl, lastHeartbeat, label, isBusy, busySince }
 const cumulativeProfitMap = {}; // keyed by moduleId (stable)
@@ -315,6 +393,9 @@ function startDashboard(stateManager) {
           for (const r of todayAgg) todayProfitMap[r._id] = r.total;
         } catch(e) {}
       }, 5000);
+
+      updateSuccessRates();
+      setInterval(updateSuccessRates, 10000);
     } catch (err) {
       console.error("[MongoDB] Failed to connect:", err.message);
     }
@@ -825,7 +906,8 @@ function startDashboard(stateManager) {
           betLog: paginatedBets, 
           totalBets: totalBets,
           activeModules: onlineModules,
-          lastUpdated
+          lastUpdated,
+          successRates: cachedSuccessRates
         }));
       } catch (err) {
         res.writeHead(500, { "Content-Type": "application/json" });
