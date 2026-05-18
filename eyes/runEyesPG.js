@@ -258,6 +258,8 @@ function writeStateJson(tables, timestamp, events, allScrapedTables = [], ignore
       lastPlayerCards: ts ? ts.lastPlayerCards : [],
       lastBankerCards: ts ? ts.lastBankerCards : [],
       bufferedCards: ts ? ts.bufferedCards : { player: [], banker: [] },
+      lastErrorResetReason: ts ? ts.lastErrorResetReason : null,
+      lastErrorResetTime: ts ? ts.lastErrorResetTime : null,
 
       // ── EV results (from previous calculation, updated after Step 3) ──
       ev: ts && ts.lastEvResult

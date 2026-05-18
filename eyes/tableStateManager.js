@@ -74,6 +74,8 @@ class TableState {
     this.hasWarnedAhead = false; // track warnings to prevent spam
     this.consecutiveZeroCardHands = 0;
     this.handFinalizedForCycle = false; // prevents double-finalization per dealing cycle
+    this.lastErrorResetReason = null;
+    this.lastErrorResetTime = null;
   }
 
   get remaining() {
@@ -325,6 +327,13 @@ class TableStateManager {
     ts.lastPlayerCards = [];
     ts.lastBankerCards = [];
     ts.lastEvResult = null;
+    if (reason && reason.startsWith('Invalid state')) {
+      ts.lastErrorResetReason = reason;
+      ts.lastErrorResetTime = Date.now();
+    } else {
+      ts.lastErrorResetReason = null;
+      ts.lastErrorResetTime = null;
+    }
     const msg = `[SHOE] ${ts.tableName}: Reset to fresh shoe (${reason})`;
     console.log(`\x1b[33m${msg}\x1b[0m`);
     if (reason.startsWith('Invalid state')) {
@@ -355,6 +364,8 @@ class TableStateManager {
         bufferedCards: ts.bufferedCards,
         currentBetId: ts.currentBetId,
         consecutiveZeroCardHands: ts.consecutiveZeroCardHands,
+        lastErrorResetReason: ts.lastErrorResetReason,
+        lastErrorResetTime: ts.lastErrorResetTime,
       };
     }
     return data;
@@ -378,6 +389,8 @@ class TableStateManager {
       ts.bufferedCards = saved.bufferedCards || { player: [], banker: [] };
       ts.currentBetId = saved.currentBetId || null;
       ts.consecutiveZeroCardHands = saved.consecutiveZeroCardHands || 0;
+      ts.lastErrorResetReason = saved.lastErrorResetReason || null;
+      ts.lastErrorResetTime = saved.lastErrorResetTime || null;
       ts.restored = true; // mark for validation on first live tick
       this.tables.set(name, ts);
     }

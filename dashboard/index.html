@@ -237,11 +237,21 @@
       const lc=(t.lastPlayerCards?.length||t.lastBankerCards?.length)
         ?`<div class="cards">P[${(t.lastPlayerCards||[]).join(',')}] B[${(t.lastBankerCards||[]).join(',')}]</div>`:'';
 
+      let errorHtml = '';
+      if (t.lastErrorResetReason) {
+        let errTime = '';
+        if (t.lastErrorResetTime) {
+          const d = new Date(t.lastErrorResetTime);
+          errTime = d.toLocaleTimeString('en-GB', { timeZone: 'Asia/Singapore', hour12: false }) + ' ';
+        }
+        errorHtml = `<div class="alert" style="color:var(--red); border-color:var(--red); background:rgba(248,81,73,.1); white-space:normal; line-height:1.2;">⚠ Reset: ${errTime}${t.lastErrorResetReason}</div>`;
+      }
+
       return`<div class="tc${e?' edge':''}">
         <div class="top"><span class="name">${t.tableName}</span><span class="st ${stCls(t.state)}">${t.state||'—'}</span></div>
         <div class="pbar"><div class="f" style="width:${pct}%;background:${col}"></div></div>
         <div class="info"><span style="color:var(--text)">H${t.handNumber}</span><span style="color:var(--text)">R${t.round}</span><span class="p">P${t.wins?.P??0}</span><span class="b">B${t.wins?.B??0}</span><span class="t">T${t.wins?.T??0}</span><span style="margin-left:auto">${t.deckRemaining}/416</span></div>
-        ${lc}${dk}${evH}
+        ${lc}${dk}${evH}${errorHtml}
       </div>`;
     }
 
