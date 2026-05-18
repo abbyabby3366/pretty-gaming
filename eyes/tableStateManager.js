@@ -89,6 +89,7 @@ class TableStateManager {
   constructor() {
     /** @type {Map<string, TableState>} */
     this.tables = new Map();
+    this.lastResetNotificationTime = new Map(); // Rate limiting for reset notifications
   }
 
   /**
@@ -334,12 +335,28 @@ class TableStateManager {
       ts.lastErrorResetReason = null;
       ts.lastErrorResetTime = null;
     }
+
     const msg = `[SHOE] ${ts.tableName}: Reset to fresh shoe (${reason})`;
+    
+    // Rate limit notifications for the same table and reason to once per 15 minutes
+    const rateLimitKey = `${ts.tableName}:${reason}`;
+    const now = Date.now();
+    const lastSent = this.lastResetNotificationTime ? (this.lastResetNotificationTime.get(rateLimitKey) || 0) : 0;
+    const isSpam = (now - lastSent) < 15 * 60 * 1000;
+
     if (!reason.includes("Shuffling detected") && !reason.includes("Shuffling state detected")) {
-      console.log(`\x1b[33m${msg}\x1b[0m`);
+      if (!isSpam) {
+        console.log(`\x1b[33m${msg}\x1b[0m`);
+      }
     }
+    
     if (reason.startsWith('Invalid state')) {
-      sendWhatsAppNotification(msg).catch(err => console.error("WhatsApp Notification failed:", err));
+      if (!isSpam) {
+        sendWhatsAppNotification(msg).catch(err => console.error("WhatsApp Notification failed:", err));
+        if (this.lastResetNotificationTime) {
+          this.lastResetNotificationTime.set(rateLimitKey, now);
+        }
+      }
     }
   }
 
