@@ -73,6 +73,7 @@ class TableState {
     this.restored = false; // true if loaded from saved state, cleared after first validation
     this.hasWarnedAhead = false; // track warnings to prevent spam
     this.consecutiveZeroCardHands = 0;
+    this.handFinalizedForCycle = false; // prevents double-finalization per dealing cycle
   }
 
   get remaining() {
@@ -139,6 +140,11 @@ class TableStateManager {
         newState.startsWith("Result") ||
         newState === "Dealing / No More Bets"
       ) {
+        // Clear the finalization flag when we enter a new dealing cycle
+        if (prevState === "Waiting for Bets" || prevState === "Shuffling" || prevState === null) {
+          ts.handFinalizedForCycle = false;
+        }
+
         const identifiablePlayer = (table.playerCards || []).filter(
           (c) => c !== "Red"
         );
@@ -170,15 +176,17 @@ class TableStateManager {
         const roundAdvanced = newRound > ts.lastRound;
         const hasResult = prevState && prevState.startsWith("Result");
 
-        if (hasCards || roundAdvanced || hasResult) {
+        // Determine logical upcoming round.
+        // If UI round is laggy (still shows the old round), we use lastRound + 1.
+        const logicalNextRound = Math.max(newRound, ts.lastRound + 1);
+
+        // Guard: only finalize once per dealing cycle (flag cleared when entering Dealing)
+        if ((hasCards || roundAdvanced || hasResult) && !ts.handFinalizedForCycle) {
           const handResult = this._finalizeHand(ts);
-          
-          // Determine logical upcoming round.
-          // If UI round is laggy (still shows the old round), we use lastRound + 1.
-          const logicalNextRound = Math.max(newRound, ts.lastRound + 1);
+          ts.handFinalizedForCycle = true;
           
           processHandResult(handResult, logicalNextRound);
-        } else {
+        } else if (!hasCards && !roundAdvanced && !hasResult) {
           // False flicker. Clear buffered cards to avoid leaking them to the next hand.
           ts.bufferedCards = { player: [], banker: [] };
           if (prevState !== newState) {
@@ -193,12 +201,16 @@ class TableStateManager {
               deckComposition: [...ts.deckComposition],
             });
           }
+        } else {
+          // Had cards/result but already finalized for this cycle — discard buffered cards
+          ts.bufferedCards = { player: [], banker: [] };
         }
       } else if (isNowWaiting && newRound > ts.lastRound && ts.lastRound > 0) {
         // Missed Dealing completely, but round advanced.
-        // Only finalize if the new round is ahead of the round we last prepared for.
-        if (newRound > ts.lastFinalizedRound) {
+        // Only finalize if we haven't already finalized for this cycle
+        if (!ts.handFinalizedForCycle && newRound > ts.lastFinalizedRound) {
           const handResult = this._finalizeHand(ts);
+          ts.handFinalizedForCycle = true;
           processHandResult(handResult, newRound);
         }
       }
@@ -308,6 +320,7 @@ class TableStateManager {
     ts.lastFinalizedRound = 0;
     ts.hasWarnedAhead = false;
     ts.consecutiveZeroCardHands = 0;
+    ts.handFinalizedForCycle = false;
     ts.bufferedCards = { player: [], banker: [] };
     ts.lastPlayerCards = [];
     ts.lastBankerCards = [];
