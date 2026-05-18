@@ -86,6 +86,10 @@ function calculateEVForEvents(events, dynamicConfig = {}) {
   for (const event of events) {
     if (event.type !== "HAND_COMPLETE" && event.type !== "STATE_CHANGE") continue;
 
+    // Skip EV calculation if shoe was reset (shuffle) in the same tick — pre-reset deck is meaningless
+    const hasReset = events.some(e => e.type === "SHOE_RESET" && e.tableName === event.tableName);
+    if (hasReset) continue;
+
     const ts = event.tableState;
     const evResult = calculateEV(event.deckComposition, dynamicConfig);
     if (evResult) {
@@ -116,6 +120,9 @@ function sendSignals(events) {
 
     if (event.type !== "HAND_COMPLETE" && event.type !== "STATE_CHANGE") continue;
     const ts = event.tableState;
+
+    // Skip all EV warnings and bet placement if shoe was reset (shuffle) in the same tick
+    const hasReset = events.some(e => e.type === "SHOE_RESET" && e.tableName === event.tableName);
 
     // 1. REPORT OUTCOME OF PREVIOUS BET
     // The table just transitioned to "Waiting for Bets", meaning the previous hand finished.
@@ -149,14 +156,18 @@ function sendSignals(events) {
       ts.currentBetId = null;
     }
 
+    // Skip EV warning and bet placement if shoe was reset this tick
+    if (hasReset) continue;
+
     // 2. PLACE NEW BET FOR CURRENT ROUND
     // Only place a bet if there is a valid EV edge right now
     if (!ts.lastEvResult || !ts.lastEvResult.best) continue;
 
     const maxEv = Math.max(ts.lastEvResult.ev_player || 0, ts.lastEvResult.ev_banker || 0, ts.lastEvResult.ev_tie || 0);
-    if (maxEv > 0.006) {
+    if (maxEv > 0.01) {
       if (ts.lastWarnedEvRound !== event.round) {
-        const msg = `[WARNING] ${event.tableName} (Round ${event.round}): Abnormal EV detected (${(maxEv * 100).toFixed(3)}% > 0.6%). Deck size might be out of sync (Remaining: ${ts.remaining})`;
+        const snapshotRemaining = event.deckRemaining !== undefined ? event.deckRemaining : ts.remaining;
+        const msg = `[WARNING] ${event.tableName} (Round ${event.round}): Abnormal EV detected (${(maxEv * 100).toFixed(3)}% > 1.0%). Deck size might be out of sync (Remaining: ${snapshotRemaining})`;
         console.log(`\x1b[33m${msg}\x1b[0m`);
         sendWhatsAppNotification(msg).catch(() => {});
         ts.lastWarnedEvRound = event.round;
@@ -166,10 +177,6 @@ function sendSignals(events) {
     if (ts.currentBetId) {
       continue; // Bet already pending for this cycle, avoid duplicate dispatch
     }
-
-    // Do not place a new bet if the shoe is currently resetting
-    const hasReset = events.some(e => e.type === "SHOE_RESET" && e.tableName === event.tableName);
-    if (hasReset) continue;
 
     // Generate a new UUID for this new betting phase
     ts.currentBetId = crypto.randomUUID();
