@@ -58,34 +58,19 @@ async function updateSuccessRates() {
     const bets = await dbCollection.find({ outcome: { $in: validOutcomes } })
       .sort({ time: -1 })
       .limit(10000)
-      .project({ outcome: 1, targetModuleId: 1, targetModule: 1 })
+      .project({ outcome: 1 })
       .toArray();
 
     let s100 = 0, t100 = 0;
     let s1000 = 0, t1000 = 0;
     let s10000 = 0, t10000 = bets.length;
-    let modStats = {};
 
     for (let i = 0; i < bets.length; i++) {
       const b = bets[i];
       const isSuccess = successOutcomes.includes(b.outcome);
-      
       if (isSuccess) s10000++;
-
-      if (i < 100) {
-        t100++;
-        if (isSuccess) s100++;
-      }
-      if (i < 1000) {
-        t1000++;
-        if (isSuccess) s1000++;
-        
-        const modId = b.targetModuleId || b.targetModule || "UNKNOWN";
-        const modLabel = b.targetModule || modId;
-        if (!modStats[modLabel]) modStats[modLabel] = { s: 0, t: 0 };
-        modStats[modLabel].t++;
-        if (isSuccess) modStats[modLabel].s++;
-      }
+      if (i < 100) { t100++; if (isSuccess) s100++; }
+      if (i < 1000) { t1000++; if (isSuccess) s1000++; }
     }
 
     const allTimeAgg = await dbCollection.aggregate([
@@ -103,17 +88,37 @@ async function updateSuccessRates() {
       if (r._id === true) allSuccess += r.count;
     }
 
+    let moduleRates = {};
+    for (const m of activeModules.values()) {
+      let headerLabel = m.label;
+      if (m.accounts && m.accounts.length > 0 && m.accounts[0].label) {
+        headerLabel = m.accounts[0].label;
+      }
+      
+      const modBets = await dbCollection.find({
+        outcome: { $in: validOutcomes },
+        $or: [
+          { targetModuleId: m.moduleId },
+          { targetModule: headerLabel },
+          { targetModule: m.label }
+        ]
+      }).sort({ time: -1 }).limit(1000).project({ outcome: 1 }).toArray();
+
+      let ms = 0;
+      let mt = modBets.length;
+      for (const mb of modBets) {
+        if (successOutcomes.includes(mb.outcome)) ms++;
+      }
+      moduleRates[headerLabel] = mt > 0 ? (ms / mt) : null;
+    }
+
     cachedSuccessRates = {
       last100: t100 > 0 ? (s100 / t100) : null,
       last1000: t1000 > 0 ? (s1000 / t1000) : null,
       last10000: t10000 > 0 ? (s10000 / t10000) : null,
       allTime: allTotal > 0 ? (allSuccess / allTotal) : null,
-      moduleLast1000: {}
+      moduleLast1000: moduleRates
     };
-
-    for (const [mod, stat] of Object.entries(modStats)) {
-      cachedSuccessRates.moduleLast1000[mod] = stat.t > 0 ? (stat.s / stat.t) : null;
-    }
   } catch (e) {
     console.error("[Stats] Failed to update success rates:", e.message);
   }
