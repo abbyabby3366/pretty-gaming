@@ -704,13 +704,11 @@ function startDashboard(stateManager) {
             startDate = new Date(currentPeriodStart);
             startDate.setDate(startDate.getDate() - 1);
             endDate = new Date(currentPeriodStart);
-          } else if (range === 'this_week') {
-            let dayOfWeek = currentPeriodStart.getDay();
-            let daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+          } else if (range === 'last_7_days') {
             startDate = new Date(currentPeriodStart);
-            startDate.setDate(startDate.getDate() - daysSinceMonday);
-            endDate = new Date(startDate);
-            endDate.setDate(endDate.getDate() + 7);
+            startDate.setDate(startDate.getDate() - 6);
+            endDate = new Date(currentPeriodStart);
+            endDate.setDate(endDate.getDate() + 1);
           }
           
           if (startDate && endDate) {
