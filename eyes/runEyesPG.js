@@ -312,10 +312,24 @@ async function runEyesPG(pageOrRef, extractorCode, acctConfig) {
   
   const getPage = () => (pageOrRef && pageOrRef.current) ? pageOrRef.current : pageOrRef;
 
-  while (!getPage().isClosed()) {
-    try {
-      const startTime = Date.now();
-      const currentPage = getPage();
+  let lastStateChangeTime = Date.now();
+  const staleCheckTimer = setInterval(() => {
+    if (Date.now() - lastStateChangeTime > 60000) {
+      console.log("\x1b[31m[STALE] State hasn't changed for 1 minute. Closing tab to force restart...\x1b[0m");
+      sendWhatsAppNotification(`[STALE] PG Eyes state stuck for 1 min. Closing tab to force restart.`).catch(() => {});
+      const p = getPage();
+      if (p && !p.isClosed()) {
+        p.close().catch(() => {});
+      }
+      clearInterval(staleCheckTimer);
+    }
+  }, 5000);
+
+  try {
+    while (!getPage().isClosed()) {
+      try {
+        const startTime = Date.now();
+        const currentPage = getPage();
 
       // Step 1: Scrape
       const data = await scrapePG(currentPage, extractorCode, acctConfig);
@@ -355,6 +369,9 @@ async function runEyesPG(pageOrRef, extractorCode, acctConfig) {
 
         // Step 2: Analyse state transitions
         const events = analyseState(filteredTables);
+        if (events.some(e => ["HAND_COMPLETE", "STATE_CHANGE", "SHOE_RESET"].includes(e.type))) {
+          lastStateChangeTime = Date.now();
+        }
 
         // Write complete state JSON (right after analysis, before EV calc)
         writeStateJson(filteredTables, timestamp, events, allScrapedTables, ignoredTables, dynamicConfig);
@@ -422,6 +439,9 @@ async function runEyesPG(pageOrRef, extractorCode, acctConfig) {
       
       await new Promise(r => setTimeout(r, 2000));
     }
+  }
+  } finally {
+    clearInterval(staleCheckTimer);
   }
   
   console.log("\x1b[31m[RECOVERY] Page was closed manually or crashed. Requesting relaunch...\x1b[0m");
