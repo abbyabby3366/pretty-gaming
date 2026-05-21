@@ -403,7 +403,51 @@ function startDashboard(stateManager) {
     } catch (err) {
       console.error("[MongoDB] Failed to connect:", err.message);
     }
-  })();
+
+function reportStatsToCentral() {
+  if (!dbCollection) return;
+  const ranges = ["today", "yesterday", "last_7_days", "all_time"];
+  const reportData = {
+    platform: "PG",
+    label: "Pretty Gaming",
+    timestamp: new Date().toISOString(),
+    ranges: {}
+  };
+
+  Promise.all(ranges.map(async (r) => {
+    try {
+      const statsData = await compileStatsJSON(r);
+      reportData.ranges[r] = statsData;
+    } catch (err) {}
+  })).then(() => {
+    const payload = JSON.stringify(reportData);
+    const options = {
+      hostname: "statsdashboard.onrender.com",
+      port: 443,
+      path: "/api/report-stats",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(payload)
+      },
+      timeout: 5000
+    };
+
+    const req = require("https").request(options, (res) => {
+      res.resume();
+    });
+
+    req.on("error", (e) => {
+      // Quietly consume connection errors to avoid printing spam
+    });
+
+    req.write(payload);
+    req.end();
+  }).catch(() => {});
+}
+
+// Ping every 10 seconds
+setInterval(reportStatsToCentral, 10000);
 
   const server = http.createServer(async (req, res) => {
     // API endpoints
@@ -674,135 +718,136 @@ function startDashboard(stateManager) {
       return;
     }
 
+async function compileStatsJSON(range = "all_time") {
+  if (!dbCollection) throw new Error("DB not connected");
+
+  let startStr = null;
+  let endStr = null;
+  let dateInfo = "All Time";
+
+  if (range !== "all_time") {
+    const now = new Date();
+    const today12pm = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0);
+    let currentPeriodStart = new Date(today12pm);
+    if (now < today12pm) {
+      currentPeriodStart.setDate(currentPeriodStart.getDate() - 1);
+    }
+    
+    let startDate = null;
+    let endDate = null;
+    
+    if (range === 'today') {
+      startDate = new Date(currentPeriodStart);
+      endDate = new Date(currentPeriodStart);
+      endDate.setDate(endDate.getDate() + 1);
+    } else if (range === 'yesterday') {
+      startDate = new Date(currentPeriodStart);
+      startDate.setDate(startDate.getDate() - 1);
+      endDate = new Date(currentPeriodStart);
+    } else if (range === 'last_7_days') {
+      startDate = new Date(currentPeriodStart);
+      startDate.setDate(startDate.getDate() - 6);
+      endDate = new Date(currentPeriodStart);
+      endDate.setDate(endDate.getDate() + 1);
+    }
+    
+    if (startDate && endDate) {
+       startStr = startDate.toISOString();
+       endStr = endDate.toISOString();
+       const options = { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit', hour12: true };
+       dateInfo = `${startDate.toLocaleString('en-GB', options)} to ${endDate.toLocaleString('en-GB', options)}`;
+    }
+  }
+  
+  const matchQ = { outcome: { $in: ["SUCCESS", "WRONG_AMOUNT"] } };
+  if (startStr && endStr) {
+    matchQ.time = { $gte: startStr, $lt: endStr };
+  }
+  
+  const bets = await dbCollection.find(matchQ).toArray();
+
+  const statsMap = {};
+  let totalStats = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, betCount: 0 };
+
+  for (const b of bets) {
+    const modId = b.targetModuleId || b.targetModule || "UNKNOWN";
+    const modLabel = b.targetModule || modId;
+    if (!statsMap[modId]) statsMap[modId] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, displayLabel: modLabel, betCount: 0 };
+    
+    let amt = parseFloat(b.actualBetAmount);
+    if (isNaN(amt)) continue;
+
+    statsMap[modId].betCount += 1;
+    totalStats.betCount += 1;
+
+    const profit = b.profit || 0;
+    const ev = b.ev || 0;
+
+    statsMap[modId].pnl += profit;
+    totalStats.pnl += profit;
+    
+    statsMap[modId].turnover += amt;
+    totalStats.turnover += amt;
+    
+    if (b.roundOutcome !== "T") {
+      statsMap[modId].effTurnover += amt;
+      totalStats.effTurnover += amt;
+
+      const evAmt = ev * amt;
+      statsMap[modId].expValue += evAmt;
+      totalStats.expValue += evAmt;
+    }
+  }
+
+  for (const m of activeModules.values()) {
+     const mid = m.moduleId;
+     if (!statsMap[mid]) statsMap[mid] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, displayLabel: m.label, betCount: 0 };
+     if (m.accounts && m.accounts[0] && m.accounts[0].balance != null) {
+        const cleanBalance = String(m.accounts[0].balance).replace(/[^0-9.-]/g, '');
+        const bval = parseFloat(cleanBalance);
+        if (!isNaN(bval)) {
+           statsMap[mid].bal = bval;
+           totalStats.bal += bval;
+        }
+     }
+  }
+
+  const formatStats = (st) => {
+    const effRebate = st.effTurnover * 0.012;
+    const avgEv = st.effTurnover > 0 ? (st.expValue / st.effTurnover) : 0;
+    return {
+      pnl: st.pnl,
+      turnover: st.turnover,
+      effTurnover: st.effTurnover,
+      effRebate: effRebate,
+      expLoss: st.expValue - effRebate,
+      expValue: st.expValue,
+      avgEv: avgEv,
+      bal: st.bal,
+      betCount: st.betCount || 0,
+      avgBet: st.betCount > 0 ? (st.turnover / st.betCount) : 0
+    };
+  };
+
+  const result = {
+     nodes: {},
+     total: formatStats(totalStats)
+  };
+  for (const [mod, st] of Object.entries(statsMap)) {
+     const displayName = st.displayLabel || mod;
+     result.nodes[displayName] = formatStats(st);
+  }
+
+  return { ok: true, stats: result, dateInfo };
+}
+
     if (req.method === "GET" && req.url.startsWith("/api/stats")) {
       try {
-        if (!dbCollection) throw new Error("DB not connected");
-
         const url = new URL(req.url, `http://localhost:${PORT}`);
         const range = url.searchParams.get("range") || "all_time";
-        
-        let startStr = null;
-        let endStr = null;
-        let dateInfo = "All Time";
-        
-        if (range !== "all_time") {
-          const now = new Date();
-          const today12pm = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0);
-          let currentPeriodStart = new Date(today12pm);
-          if (now < today12pm) {
-            currentPeriodStart.setDate(currentPeriodStart.getDate() - 1);
-          }
-          
-          let startDate = null;
-          let endDate = null;
-          
-          if (range === 'today') {
-            startDate = new Date(currentPeriodStart);
-            endDate = new Date(currentPeriodStart);
-            endDate.setDate(endDate.getDate() + 1);
-          } else if (range === 'yesterday') {
-            startDate = new Date(currentPeriodStart);
-            startDate.setDate(startDate.getDate() - 1);
-            endDate = new Date(currentPeriodStart);
-          } else if (range === 'last_7_days') {
-            startDate = new Date(currentPeriodStart);
-            startDate.setDate(startDate.getDate() - 6);
-            endDate = new Date(currentPeriodStart);
-            endDate.setDate(endDate.getDate() + 1);
-          }
-          
-          if (startDate && endDate) {
-             startStr = startDate.toISOString();
-             endStr = endDate.toISOString();
-             const options = { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit', hour12: true };
-             dateInfo = `${startDate.toLocaleString('en-GB', options)} to ${endDate.toLocaleString('en-GB', options)}`;
-          }
-        }
-        
-        const matchQ = { outcome: { $in: ["SUCCESS", "WRONG_AMOUNT"] } };
-        if (startStr && endStr) {
-          matchQ.time = { $gte: startStr, $lt: endStr };
-        }
-        
-        const bets = await dbCollection.find(matchQ).toArray();
-
-        const statsMap = {};
-        let totalStats = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, betCount: 0 };
-
-        for (const b of bets) {
-          // Use moduleId for aggregation, fall back to label for old bets
-          const modId = b.targetModuleId || b.targetModule || "UNKNOWN";
-          // Use the human-readable label for display
-          const modLabel = b.targetModule || modId;
-          if (!statsMap[modId]) statsMap[modId] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, displayLabel: modLabel, betCount: 0 };
-          
-          let amt = parseFloat(b.actualBetAmount);
-          if (isNaN(amt)) continue;
-
-          statsMap[modId].betCount += 1;
-          totalStats.betCount += 1;
-
-          const profit = b.profit || 0;
-          const ev = b.ev || 0;
-
-          statsMap[modId].pnl += profit;
-          totalStats.pnl += profit;
-          
-          statsMap[modId].turnover += amt;
-          totalStats.turnover += amt;
-          
-          if (b.roundOutcome !== "T") {
-            statsMap[modId].effTurnover += amt;
-            totalStats.effTurnover += amt;
-
-            const evAmt = ev * amt;
-            statsMap[modId].expValue += evAmt;
-            totalStats.expValue += evAmt;
-          }
-        }
-
-        // Get current balance of nodes (from activeModules)
-        for (const m of activeModules.values()) {
-           const mid = m.moduleId;
-           if (!statsMap[mid]) statsMap[mid] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, displayLabel: m.label, betCount: 0 };
-           if (m.accounts && m.accounts[0] && m.accounts[0].balance != null) {
-              const cleanBalance = String(m.accounts[0].balance).replace(/[^0-9.-]/g, '');
-              const bval = parseFloat(cleanBalance);
-              if (!isNaN(bval)) {
-                 statsMap[mid].bal = bval;
-                 totalStats.bal += bval;
-              }
-           }
-        }
-
-        const formatStats = (st) => {
-          const effRebate = st.effTurnover * 0.012;
-          const avgEv = st.effTurnover > 0 ? (st.expValue / st.effTurnover) : 0;
-          return {
-            pnl: st.pnl,
-            turnover: st.turnover,
-            effTurnover: st.effTurnover,
-            effRebate: effRebate,
-            expLoss: st.expValue - effRebate, // Game EV (without rebate)
-            expValue: st.expValue, // Net Profit (since EV already includes rebate)
-            avgEv: avgEv,
-            bal: st.bal,
-            betCount: st.betCount || 0,
-            avgBet: st.betCount > 0 ? (st.turnover / st.betCount) : 0
-          };
-        };
-
-        const result = {
-           nodes: {},
-           total: formatStats(totalStats)
-        };
-        for (const [mod, st] of Object.entries(statsMap)) {
-           const displayName = st.displayLabel || mod;
-           result.nodes[displayName] = formatStats(st);
-        }
-
+        const result = await compileStatsJSON(range);
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true, stats: result, dateInfo }));
+        res.end(JSON.stringify(result));
       } catch(e) {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: false, error: e.message }));
