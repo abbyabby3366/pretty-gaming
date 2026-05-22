@@ -27,7 +27,7 @@ try {
   if (fs.existsSync(cfgPath)) {
     betConfig = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
   }
-} catch (e) {}
+} catch (e) { }
 
 function saveConfig() {
   fs.writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(betConfig, null, 2));
@@ -75,10 +75,12 @@ async function updateSuccessRates() {
 
     const allTimeAgg = await dbCollection.aggregate([
       { $match: { outcome: { $in: validOutcomes } } },
-      { $group: {
+      {
+        $group: {
           _id: { $in: ["$outcome", successOutcomes] },
           count: { $sum: 1 }
-      }}
+        }
+      }
     ]).toArray();
 
     let allSuccess = 0;
@@ -94,7 +96,7 @@ async function updateSuccessRates() {
       if (m.accounts && m.accounts.length > 0 && m.accounts[0].label) {
         headerLabel = m.accounts[0].label;
       }
-      
+
       const modBets = await dbCollection.find({
         outcome: { $in: validOutcomes },
         $or: [
@@ -148,9 +150,9 @@ function getTodayStart() {
   const now = new Date();
   const today12pm = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0);
   if (now < today12pm) {
-     const yesterday12pm = new Date(today12pm);
-     yesterday12pm.setDate(yesterday12pm.getDate() - 1);
-     return yesterday12pm;
+    const yesterday12pm = new Date(today12pm);
+    yesterday12pm.setDate(yesterday12pm.getDate() - 1);
+    return yesterday12pm;
   }
   return today12pm;
 }
@@ -170,7 +172,7 @@ function resolveBetModuleTarget() {
     }
     return now - m.lastHeartbeat < 12000 && !m.isBusy;
   });
-  
+
   if (betConfig.minAccountBalance != null && betConfig.minAccountBalance > 0) {
     online = online.filter(m => {
       if (m.accounts && m.accounts.length > 0) {
@@ -194,18 +196,18 @@ function resolveBetModuleTarget() {
   // ONLY allow modules that are fully launched and accepting bets
   online = online.filter(m => {
     if (m.accounts && m.accounts.length > 0) {
-       return m.accounts.some(acc => acc.isAcceptingBets === true);
+      return m.accounts.some(acc => acc.isAcceptingBets === true);
     }
     return false; // If no accounts reported, don't blindly route to it
   });
 
   if (online.length === 0) return null;
-  
+
   if (betConfig.mode === 'round_robin' || !betConfig.mode) {
     // Build a stable sorted list of module IDs to cycle through
     const currentIds = online.map(m => m.moduleId).sort();
     const idsChanged = JSON.stringify(currentIds) !== JSON.stringify(lastRoundRobinModuleIds);
-    
+
     if (idsChanged) {
       lastRoundRobinModuleIds = currentIds;
       // When modules change, find where the last-used module sits in the new list
@@ -217,19 +219,19 @@ function resolveBetModuleTarget() {
         lastRoundRobinIndex = -1;
       }
     }
-    
+
     // Advance to next module
     lastRoundRobinIndex = (lastRoundRobinIndex + 1) % currentIds.length;
     const targetModuleId = currentIds[lastRoundRobinIndex];
     const targetModule = online.find(m => m.moduleId === targetModuleId);
-    
+
     if (targetModule) {
       lastUsedModuleId = targetModuleId;
       return { baseUrl: targetModule.baseUrl, moduleId: targetModule.moduleId };
     }
     return null;
   }
-  
+
   // Default fallback if mode isn't recognized or we add others later
   const fallback = online[0];
   lastUsedModuleId = fallback.moduleId;
@@ -238,16 +240,16 @@ function resolveBetModuleTarget() {
 
 function processCentralQueue() {
   if (centralBetQueue.length === 0) return;
-  
+
   const targetResult = resolveBetModuleTarget();
   if (!targetResult) {
     // Debug logging to understand why targetResult is null
     const now = Date.now();
     console.log(`[Central] processCentralQueue: No target found! Queue length: ${centralBetQueue.length}. Active modules: ${activeModules.size}`);
     for (const [id, m] of activeModules) {
-      console.log(` - Module ${id}: isBusy=${m.isBusy}, heartbeatAge=${now - m.lastHeartbeat}ms, accounts=${m.accounts?m.accounts.length:0}`);
+      console.log(` - Module ${id}: isBusy=${m.isBusy}, heartbeatAge=${now - m.lastHeartbeat}ms, accounts=${m.accounts ? m.accounts.length : 0}`);
       if (m.accounts && m.accounts.length > 0) {
-         console.log(`   - Acc[0]: isAcceptingBets=${m.accounts[0].isAcceptingBets}, balance=${m.accounts[0].balance}`);
+        console.log(`   - Acc[0]: isAcceptingBets=${m.accounts[0].isAcceptingBets}, balance=${m.accounts[0].balance}`);
       }
     }
     return; // no available modules right now
@@ -256,7 +258,7 @@ function processCentralQueue() {
   const betEntry = centralBetQueue.shift();
   const targetModuleId = targetResult.moduleId;
   const targetBaseUrl = targetResult.baseUrl;
-  
+
   const mod = activeModules.get(targetModuleId);
   if (mod) {
     mod.isBusy = true;
@@ -276,7 +278,7 @@ function processCentralQueue() {
     dbCollection.updateOne(
       { id: betEntry.id },
       { $set: { targetModuleId: betEntry.targetModuleId, targetModule: betEntry.targetModule, outcome: betEntry.outcome } }
-    ).catch(() => {});
+    ).catch(() => { });
   }
 
   fetch(targetBaseUrl + "/prettygaming/bet", {
@@ -287,7 +289,7 @@ function processCentralQueue() {
     if (!resp.ok) {
       // Non-2xx response (e.g. 503 "Browser not ready" during session restart)
       let errMsg = `HTTP ${resp.status}`;
-      try { const body = await resp.json(); errMsg = body.error || errMsg; } catch(e) {}
+      try { const body = await resp.json(); errMsg = body.error || errMsg; } catch (e) { }
       console.error(`[Central] Bet dispatch to ${targetModuleLabel} rejected: ${errMsg}`);
       betEntry.outcome = "DISPATCH_FAILED";
       betEntry.executionState = { status: "DISPATCH_FAILED", reason: errMsg };
@@ -299,7 +301,7 @@ function processCentralQueue() {
         dbCollection.updateOne(
           { id: betEntry.id },
           { $set: { outcome: betEntry.outcome, executionState: betEntry.executionState } }
-        ).catch(() => {});
+        ).catch(() => { });
       }
     }
   }).catch(err => {
@@ -314,11 +316,11 @@ function processCentralQueue() {
       dbCollection.updateOne(
         { id: betEntry.id },
         { $set: { outcome: betEntry.outcome, executionState: betEntry.executionState } }
-      ).catch(() => {});
+      ).catch(() => { });
     }
     processCentralQueue(); // try next bet
   });
-  
+
   if (centralBetQueue.length > 0) {
     processCentralQueue();
   }
@@ -351,16 +353,16 @@ function startDashboard(stateManager) {
       const db = client.db(MONGODB_NAME);
       dbCollection = db.collection("PRETTYGAMING_BETS");
       dbCollectionShuffles = db.collection("PRETTYGAMING_SHUFFLES");
-      
+
       const recentBets = await dbCollection.find().sort({ time: -1 }).limit(MAX_BET_LOG).toArray();
       for (const b of recentBets) {
         // If a bet was queued or pending when the server died/restarted, it's stale now.
         if (b.outcome === "QUEUED" || b.outcome === "PENDING") {
           b.outcome = "CANCELLED";
           b.executionState = { status: "CANCELLED", reason: "Server restarted" };
-          dbCollection.updateOne({ id: b.id }, { $set: { outcome: b.outcome, executionState: b.executionState } }).catch(() => {});
+          dbCollection.updateOne({ id: b.id }, { $set: { outcome: b.outcome, executionState: b.executionState } }).catch(() => { });
         }
-        
+
         if (!betLog.find(existing => existing.id === b.id)) betLog.push(b);
       }
       betLog.sort((a, b) => new Date(b.time) - new Date(a.time));
@@ -396,7 +398,7 @@ function startDashboard(stateManager) {
           ]).toArray();
           for (const k of Object.keys(todayProfitMap)) todayProfitMap[k] = 0;
           for (const r of todayAgg) todayProfitMap[r._id] = r.total;
-        } catch(e) {}
+        } catch (e) { }
       }, 5000);
 
       updateSuccessRates();
@@ -404,50 +406,175 @@ function startDashboard(stateManager) {
       console.error("[MongoDB] Failed to connect:", err.message);
     }
 
-function reportStatsToCentral() {
-  if (!dbCollection) return;
-  const ranges = ["today", "yesterday", "last_7_days", "all_time"];
-  const reportData = {
-    platform: "PG",
-    label: "Pretty Gaming",
-    timestamp: new Date().toISOString(),
-    ranges: {}
-  };
+  })();
 
-  Promise.all(ranges.map(async (r) => {
-    try {
-      const statsData = await compileStatsJSON(r);
-      reportData.ranges[r] = statsData;
-    } catch (err) {}
-  })).then(() => {
-    const payload = JSON.stringify(reportData);
-    const options = {
-      hostname: "statsdashboard.onrender.com",
-      port: 443,
-      path: "/api/report-stats",
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Content-Length": Buffer.byteLength(payload)
-      },
-      timeout: 5000
+  async function compileStatsJSON(range = "all_time") {
+    if (!dbCollection) throw new Error("DB not connected");
+
+    let startStr = null;
+    let endStr = null;
+    let dateInfo = "All Time";
+
+    if (range !== "all_time") {
+      const now = new Date();
+      const today12pm = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0);
+      let currentPeriodStart = new Date(today12pm);
+      if (now < today12pm) {
+        currentPeriodStart.setDate(currentPeriodStart.getDate() - 1);
+      }
+
+      let startDate = null;
+      let endDate = null;
+
+      if (range === 'today') {
+        startDate = new Date(currentPeriodStart);
+        endDate = new Date(currentPeriodStart);
+        endDate.setDate(endDate.getDate() + 1);
+      } else if (range === 'yesterday') {
+        startDate = new Date(currentPeriodStart);
+        startDate.setDate(startDate.getDate() - 1);
+        endDate = new Date(currentPeriodStart);
+      } else if (range === 'last_7_days') {
+        startDate = new Date(currentPeriodStart);
+        startDate.setDate(startDate.getDate() - 6);
+        endDate = new Date(currentPeriodStart);
+        endDate.setDate(endDate.getDate() + 1);
+      }
+
+      if (startDate && endDate) {
+        startStr = startDate.toISOString();
+        endStr = endDate.toISOString();
+        const options = { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true };
+        dateInfo = `${startDate.toLocaleString('en-GB', options)} to ${endDate.toLocaleString('en-GB', options)}`;
+      }
+    }
+
+    const matchQ = { outcome: { $in: ["SUCCESS", "WRONG_AMOUNT"] } };
+    if (startStr && endStr) {
+      matchQ.time = { $gte: startStr, $lt: endStr };
+    }
+
+    const bets = await dbCollection.find(matchQ).toArray();
+
+    const statsMap = {};
+    let totalStats = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, betCount: 0 };
+
+    for (const b of bets) {
+      const modId = b.targetModuleId || b.targetModule || "UNKNOWN";
+      const modLabel = b.targetModule || modId;
+      if (!statsMap[modId]) statsMap[modId] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, displayLabel: modLabel, betCount: 0 };
+
+      let amt = parseFloat(b.actualBetAmount);
+      if (isNaN(amt)) continue;
+
+      statsMap[modId].betCount += 1;
+      totalStats.betCount += 1;
+
+      const profit = b.profit || 0;
+      const ev = b.ev || 0;
+
+      statsMap[modId].pnl += profit;
+      totalStats.pnl += profit;
+
+      statsMap[modId].turnover += amt;
+      totalStats.turnover += amt;
+
+      if (b.roundOutcome !== "T") {
+        statsMap[modId].effTurnover += amt;
+        totalStats.effTurnover += amt;
+
+        const evAmt = ev * amt;
+        statsMap[modId].expValue += evAmt;
+        totalStats.expValue += evAmt;
+      }
+    }
+
+    for (const m of activeModules.values()) {
+      const mid = m.moduleId;
+      if (!statsMap[mid]) statsMap[mid] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, displayLabel: m.label, betCount: 0 };
+      if (m.accounts && m.accounts[0] && m.accounts[0].balance != null) {
+        const cleanBalance = String(m.accounts[0].balance).replace(/[^0-9.-]/g, '');
+        const bval = parseFloat(cleanBalance);
+        if (!isNaN(bval)) {
+          statsMap[mid].bal = bval;
+          totalStats.bal += bval;
+        }
+      }
+    }
+
+    const formatStats = (st) => {
+      const effRebate = st.effTurnover * 0.012;
+      const avgEv = st.effTurnover > 0 ? (st.expValue / st.effTurnover) : 0;
+      return {
+        pnl: st.pnl,
+        turnover: st.turnover,
+        effTurnover: st.effTurnover,
+        effRebate: effRebate,
+        expLoss: st.expValue - effRebate,
+        expValue: st.expValue,
+        avgEv: avgEv,
+        bal: st.bal,
+        betCount: st.betCount || 0,
+        avgBet: st.betCount > 0 ? (st.turnover / st.betCount) : 0
+      };
     };
 
-    const req = require("https").request(options, (res) => {
-      res.resume();
-    });
+    const result = {
+      nodes: {},
+      total: formatStats(totalStats)
+    };
+    for (const [mod, st] of Object.entries(statsMap)) {
+      const displayName = st.displayLabel || mod;
+      result.nodes[displayName] = formatStats(st);
+    }
 
-    req.on("error", (e) => {
-      // Quietly consume connection errors to avoid printing spam
-    });
+    return { ok: true, stats: result, dateInfo };
+  }
 
-    req.write(payload);
-    req.end();
-  }).catch(() => {});
-}
+  function reportStatsToCentral() {
+    if (!dbCollection) return;
+    const ranges = ["today", "yesterday", "last_7_days", "all_time"];
+    const reportData = {
+      platform: "PG",
+      label: "Pretty Gaming",
+      timestamp: new Date().toISOString(),
+      ranges: {}
+    };
 
-// Ping every 10 seconds
-setInterval(reportStatsToCentral, 10000);
+    Promise.all(ranges.map(async (r) => {
+      try {
+        const statsData = await compileStatsJSON(r);
+        reportData.ranges[r] = statsData;
+      } catch (err) { }
+    })).then(() => {
+      const payload = JSON.stringify(reportData);
+      const options = {
+        hostname: "statsdashboard.onrender.com",
+        port: 443,
+        path: "/api/report-stats",
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(payload)
+        },
+        timeout: 5000
+      };
+
+      const req = require("https").request(options, (res) => {
+        res.resume();
+      });
+
+      req.on("error", (e) => {
+        // Quietly consume connection errors to avoid printing spam
+      });
+
+      req.write(payload);
+      req.end();
+    }).catch(() => { });
+  }
+
+  // Ping every 10 seconds
+  setInterval(reportStatsToCentral, 10000);
 
   const server = http.createServer(async (req, res) => {
     // API endpoints
@@ -465,7 +592,7 @@ setInterval(reportStatsToCentral, 10000);
             isBusy: existing ? existing.isBusy : false,
             busySince: existing ? existing.busySince : null
           });
-          
+
           // If any bets are queued, try to process them now that a module is checking in
           processCentralQueue();
         }
@@ -481,7 +608,7 @@ setInterval(reportStatsToCentral, 10000);
     if (req.method === "POST" && req.url.startsWith("/api/telemetry/eyes")) {
       try {
         const body = await parseJSONBody(req);
-        
+
         if (body.status && body.status.gameState === "ROUND_COMPLETE") {
           const betId = body.uuid;
           const existingBet = betLog.find(b => b.id === betId);
@@ -490,7 +617,7 @@ setInterval(reportStatsToCentral, 10000);
             if (['B', 'P', 'T'].includes(newWinner) && existingBet.roundOutcome !== newWinner) {
               existingBet.roundOutcome = newWinner;
               existingBet.outcomeState = body;
-              
+
               let profit = 0;
               const amt = parseFloat(existingBet.actualBetAmount);
               if ((existingBet.outcome === 'SUCCESS' || existingBet.outcome === 'WRONG_AMOUNT') && !isNaN(amt)) {
@@ -519,7 +646,7 @@ setInterval(reportStatsToCentral, 10000);
                 dbCollection.updateOne(
                   { id: existingBet.id },
                   { $set: { roundOutcome: existingBet.roundOutcome, outcomeState: existingBet.outcomeState, profit: existingBet.profit } }
-                ).catch(() => {});
+                ).catch(() => { });
               }
             } else if (!['B', 'P', 'T'].includes(existingBet.roundOutcome)) {
               existingBet.outcomeState = body;
@@ -527,7 +654,7 @@ setInterval(reportStatsToCentral, 10000);
                 dbCollection.updateOne(
                   { id: existingBet.id },
                   { $set: { outcomeState: existingBet.outcomeState } }
-                ).catch(() => {});
+                ).catch(() => { });
               }
             }
           }
@@ -548,26 +675,26 @@ setInterval(reportStatsToCentral, 10000);
         }
 
         const betId = body.uuid || ("bet_" + Date.now() + "_" + Math.random().toString(36).substr(2, 5));
-        
+
         let payout = 1;
         if (bestTarget === "BankerBet" || bestTarget === "Banker") payout = 0.95;
         if (bestTarget === "TieBet" || bestTarget === "Tie") payout = 8;
-        
+
         let recommendedBetAmount = 0;
         if (bestEv > 0) {
-           let amount = 0;
-           if (betConfig.method === 'flat') {
-             amount = betConfig.startingBankroll * betConfig.flatRatio;
-           } else {
-             // Kelly
-             let rawKelly = bestEv / payout;
-             amount = betConfig.startingBankroll * betConfig.kellyFraction * rawKelly;
-           }
-           
-           if (betConfig.rounding > 0) amount = Math.round(amount / betConfig.rounding) * betConfig.rounding;
-           if (amount > betConfig.maxBet) amount = betConfig.maxBet;
-           if (amount < betConfig.rounding && amount > 0) amount = betConfig.rounding;
-           recommendedBetAmount = amount;
+          let amount = 0;
+          if (betConfig.method === 'flat') {
+            amount = betConfig.startingBankroll * betConfig.flatRatio;
+          } else {
+            // Kelly
+            let rawKelly = bestEv / payout;
+            amount = betConfig.startingBankroll * betConfig.kellyFraction * rawKelly;
+          }
+
+          if (betConfig.rounding > 0) amount = Math.round(amount / betConfig.rounding) * betConfig.rounding;
+          if (amount > betConfig.maxBet) amount = betConfig.maxBet;
+          if (amount < betConfig.rounding && amount > 0) amount = betConfig.rounding;
+          recommendedBetAmount = amount;
         }
 
         const betEntry = {
@@ -588,12 +715,12 @@ setInterval(reportStatsToCentral, 10000);
           roundOutcome: "WAITING",
           profit: null
         };
-        
+
         betLog.unshift(betEntry);
         if (betLog.length > MAX_BET_LOG) betLog.length = MAX_BET_LOG;
 
         if (dbCollection) {
-          dbCollection.insertOne(betEntry).catch(() => {});
+          dbCollection.insertOne(betEntry).catch(() => { });
         }
 
         if (!betConfig.autoBetEnabled) {
@@ -625,7 +752,7 @@ setInterval(reportStatsToCentral, 10000);
             reason: body.reason || "Shuffling detected",
             finalRound: body.finalRound || 0
           };
-          dbCollectionShuffles.insertOne(shuffleEntry).catch(() => {});
+          dbCollectionShuffles.insertOne(shuffleEntry).catch(() => { });
         }
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: true, action: "SHUFFLE_RECORDED" }));
@@ -642,11 +769,11 @@ setInterval(reportStatsToCentral, 10000);
         const bet = betLog.find(b => b.id === body.betId);
         if (bet) {
           bet.executionState = body;
-          
+
           let placedAmtStr = String(body.betAmount || "").replace(/,/g, '');
           let placedAmt = parseFloat(placedAmtStr);
           let targetAmt = parseFloat(bet.recommendedBetAmount);
-          
+
           if (body.status === "SUCCESS") {
             if (isNaN(placedAmt) || placedAmt <= 0) {
               bet.outcome = "UNPLACED";
@@ -658,17 +785,17 @@ setInterval(reportStatsToCentral, 10000);
           } else {
             bet.outcome = "UNPLACED";
           }
-          
+
           bet.actualBetAmount = body.betAmount || "-";
           bet.timer = body.timer != null ? body.timer : null;
-          
+
           if (dbCollection) {
             dbCollection.updateOne(
               { id: bet.id },
               { $set: { outcome: bet.outcome, actualBetAmount: bet.actualBetAmount, executionState: bet.executionState, timer: bet.timer } }
-            ).catch(() => {});
+            ).catch(() => { });
           }
-          
+
           if (bet.targetModuleId) {
             const mod = activeModules.get(bet.targetModuleId);
             if (mod) {
@@ -676,7 +803,7 @@ setInterval(reportStatsToCentral, 10000);
               mod.busySince = null;
             }
           }
-          
+
           processCentralQueue();
         }
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -691,7 +818,7 @@ setInterval(reportStatsToCentral, 10000);
     if (req.method === "POST" && req.url.startsWith("/clear-bet-logs")) {
       betLog.length = 0;
       if (dbCollection) {
-        dbCollection.deleteMany({}).catch(() => {});
+        dbCollection.deleteMany({}).catch(() => { });
       }
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true, message: "Cleared all bets" }));
@@ -718,128 +845,6 @@ setInterval(reportStatsToCentral, 10000);
       return;
     }
 
-async function compileStatsJSON(range = "all_time") {
-  if (!dbCollection) throw new Error("DB not connected");
-
-  let startStr = null;
-  let endStr = null;
-  let dateInfo = "All Time";
-
-  if (range !== "all_time") {
-    const now = new Date();
-    const today12pm = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0);
-    let currentPeriodStart = new Date(today12pm);
-    if (now < today12pm) {
-      currentPeriodStart.setDate(currentPeriodStart.getDate() - 1);
-    }
-    
-    let startDate = null;
-    let endDate = null;
-    
-    if (range === 'today') {
-      startDate = new Date(currentPeriodStart);
-      endDate = new Date(currentPeriodStart);
-      endDate.setDate(endDate.getDate() + 1);
-    } else if (range === 'yesterday') {
-      startDate = new Date(currentPeriodStart);
-      startDate.setDate(startDate.getDate() - 1);
-      endDate = new Date(currentPeriodStart);
-    } else if (range === 'last_7_days') {
-      startDate = new Date(currentPeriodStart);
-      startDate.setDate(startDate.getDate() - 6);
-      endDate = new Date(currentPeriodStart);
-      endDate.setDate(endDate.getDate() + 1);
-    }
-    
-    if (startDate && endDate) {
-       startStr = startDate.toISOString();
-       endStr = endDate.toISOString();
-       const options = { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit', hour12: true };
-       dateInfo = `${startDate.toLocaleString('en-GB', options)} to ${endDate.toLocaleString('en-GB', options)}`;
-    }
-  }
-  
-  const matchQ = { outcome: { $in: ["SUCCESS", "WRONG_AMOUNT"] } };
-  if (startStr && endStr) {
-    matchQ.time = { $gte: startStr, $lt: endStr };
-  }
-  
-  const bets = await dbCollection.find(matchQ).toArray();
-
-  const statsMap = {};
-  let totalStats = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, betCount: 0 };
-
-  for (const b of bets) {
-    const modId = b.targetModuleId || b.targetModule || "UNKNOWN";
-    const modLabel = b.targetModule || modId;
-    if (!statsMap[modId]) statsMap[modId] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, displayLabel: modLabel, betCount: 0 };
-    
-    let amt = parseFloat(b.actualBetAmount);
-    if (isNaN(amt)) continue;
-
-    statsMap[modId].betCount += 1;
-    totalStats.betCount += 1;
-
-    const profit = b.profit || 0;
-    const ev = b.ev || 0;
-
-    statsMap[modId].pnl += profit;
-    totalStats.pnl += profit;
-    
-    statsMap[modId].turnover += amt;
-    totalStats.turnover += amt;
-    
-    if (b.roundOutcome !== "T") {
-      statsMap[modId].effTurnover += amt;
-      totalStats.effTurnover += amt;
-
-      const evAmt = ev * amt;
-      statsMap[modId].expValue += evAmt;
-      totalStats.expValue += evAmt;
-    }
-  }
-
-  for (const m of activeModules.values()) {
-     const mid = m.moduleId;
-     if (!statsMap[mid]) statsMap[mid] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, displayLabel: m.label, betCount: 0 };
-     if (m.accounts && m.accounts[0] && m.accounts[0].balance != null) {
-        const cleanBalance = String(m.accounts[0].balance).replace(/[^0-9.-]/g, '');
-        const bval = parseFloat(cleanBalance);
-        if (!isNaN(bval)) {
-           statsMap[mid].bal = bval;
-           totalStats.bal += bval;
-        }
-     }
-  }
-
-  const formatStats = (st) => {
-    const effRebate = st.effTurnover * 0.012;
-    const avgEv = st.effTurnover > 0 ? (st.expValue / st.effTurnover) : 0;
-    return {
-      pnl: st.pnl,
-      turnover: st.turnover,
-      effTurnover: st.effTurnover,
-      effRebate: effRebate,
-      expLoss: st.expValue - effRebate,
-      expValue: st.expValue,
-      avgEv: avgEv,
-      bal: st.bal,
-      betCount: st.betCount || 0,
-      avgBet: st.betCount > 0 ? (st.turnover / st.betCount) : 0
-    };
-  };
-
-  const result = {
-     nodes: {},
-     total: formatStats(totalStats)
-  };
-  for (const [mod, st] of Object.entries(statsMap)) {
-     const displayName = st.displayLabel || mod;
-     result.nodes[displayName] = formatStats(st);
-  }
-
-  return { ok: true, stats: result, dateInfo };
-}
 
     if (req.method === "GET" && req.url.startsWith("/api/stats")) {
       try {
@@ -848,7 +853,7 @@ async function compileStatsJSON(range = "all_time") {
         const result = await compileStatsJSON(range);
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(result));
-      } catch(e) {
+      } catch (e) {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: false, error: e.message }));
       }
@@ -858,7 +863,7 @@ async function compileStatsJSON(range = "all_time") {
     if (req.method === "GET" && req.url.startsWith("/api/shuffles")) {
       try {
         if (!dbCollectionShuffles) throw new Error("DB not connected");
-        
+
         const shuffles = await dbCollectionShuffles.find({}).sort({ time: 1 }).toArray();
         const dailyCounts = {};
 
@@ -915,7 +920,7 @@ async function compileStatsJSON(range = "all_time") {
         const outcomeFilter = url.searchParams.get("outcome") || "ALL";
         const startFilter = url.searchParams.get("start");
         const endFilter = url.searchParams.get("end");
-        
+
         const matchQ = {};
         if (statusFilter !== "ALL") {
           if (statusFilter === "NON_SUCCESS") {
@@ -932,14 +937,14 @@ async function compileStatsJSON(range = "all_time") {
           if (startFilter) matchQ.time.$gte = startFilter;
           if (endFilter) matchQ.time.$lte = endFilter;
         }
-        
+
         const skip = (page - 1) * limit;
 
         let lastUpdated = null;
         try {
           const stats = fs.statSync(path.join(ROOT, "eyes", "json", "tables_state.json"));
           lastUpdated = stats.mtime.toISOString();
-        } catch (e) {}
+        } catch (e) { }
 
         const onlineModules = Array.from(activeModules.values()).map(m => {
           const mid = m.moduleId;
@@ -953,16 +958,16 @@ async function compileStatsJSON(range = "all_time") {
         let totalBets = 0;
         let paginatedBets = [];
         if (!dbCollection) {
-           throw new Error("DB not connected yet");
+          throw new Error("DB not connected yet");
         }
-        
+
         totalBets = await dbCollection.countDocuments(matchQ);
         paginatedBets = await dbCollection.find(matchQ).sort({ time: -1 }).skip(skip).limit(limit).toArray();
 
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ 
-          ok: true, 
-          betLog: paginatedBets, 
+        res.end(JSON.stringify({
+          ok: true,
+          betLog: paginatedBets,
           totalBets: totalBets,
           activeModules: onlineModules,
           lastUpdated,
@@ -984,7 +989,7 @@ async function compileStatsJSON(range = "all_time") {
       for (const ts of _stateManager.tables.values()) {
         _stateManager._resetShoe(ts, "Manual reset all from dashboard");
       }
-      
+
       sendWhatsAppNotification("[DASHBOARD] User manually reset ALL tables to fresh shoes.")
         .catch(err => console.error("WhatsApp Notification failed:", err));
 
