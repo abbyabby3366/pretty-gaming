@@ -59,6 +59,68 @@ const WATCHED_TABLE = "Prettyonsexy01";
     return headers;
   }
 
+  // --- BEAD ROAD INTEGRATION ---
+  const outcomeMap = {
+    "b":   { label: "Banker Win",                 emoji: "🔴" },
+    "bb":  { label: "Banker Win + Banker Pair",   emoji: "🔴" },
+    "bp":  { label: "Banker Win + Player Pair",   emoji: "🔴" },
+    "bpb": { label: "Banker Win + Both Pairs",    emoji: "🔴" },
+    "p":   { label: "Player Win",                 emoji: "🔵" },
+    "pb":  { label: "Player Win + Banker Pair",   emoji: "🔵" },
+    "pp":  { label: "Player Win + Player Pair",   emoji: "🔵" },
+    "t":   { label: "Tie Win",                    emoji: "🟢" },
+    "tb":  { label: "Tie Win + Banker Pair",      emoji: "🟢" },
+    "tp":  { label: "Tie Win + Player Pair",      emoji: "🟢" },
+    "n":   { label: "Empty",                      emoji: "⚪" }
+  };
+
+  function getDetailedLabel(code) {
+    const details = outcomeMap[code] || { label: `Unknown (${code})`, emoji: "❓" };
+    let tags = [];
+    if (code.includes('pp') || code.includes('bp') || (code.startsWith('p') && code.endsWith('p') && code.length > 1) || code === 'tp') {
+      tags.push("Player Pair");
+    }
+    if (code.includes('bb') || code.includes('pb') || (code.startsWith('b') && code.endsWith('b') && code.length > 1) || code === 'tb') {
+      tags.push("Banker Pair");
+    }
+    if (code === 'bpb') {
+      tags = ["Player Pair", "Banker Pair"];
+    }
+
+    if (tags.length > 0) {
+      return `${details.label} (${tags.join(" + ")})`;
+    }
+    return details.label;
+  }
+
+  async function fetchAndLogBeadRoad(roomId, displayName) {
+    try {
+      const url = `${API_BASE}/apiRoute/table/getStatResult/${roomId}`;
+      const res = await fetch(url, { headers: getHeaders() }).then(r => r.json());
+
+      if (res.code === 0 && res.data && Array.isArray(res.data.statistics)) {
+        const statistics = res.data.statistics;
+        const lineOutput = statistics.map(code => {
+          const info = outcomeMap[code] || { emoji: "❓" };
+          return info.emoji;
+        }).join(" ");
+
+        console.log(
+          `  %c📊 BEAD ROAD %c ${lineOutput}`,
+          "color: #ffaa00; font-weight: bold;",
+          "color: inherit;"
+        );
+        console.log(
+          `  %c📊 STATS     %c🔵 Player: ${statistics.filter(c => c.startsWith('p')).length} | 🔴 Banker: ${statistics.filter(c => c.startsWith('b')).length} | 🟢 Tie: ${statistics.filter(c => c.startsWith('t')).length}`,
+          "color: #58a6ff; font-weight: bold;",
+          "color: #8b949e; font-size: 11px;"
+        );
+      }
+    } catch (err) {
+      console.warn("⚠️ Failed to fetch bead road for table transition:", err.message);
+    }
+  }
+
   // --- 2. DEEP PINIA STATE SCANNER ---
   function getLivePiniaSockets() {
     try {
@@ -260,6 +322,11 @@ const WATCHED_TABLE = "Prettyonsexy01";
         "color: #ffaa00; font-weight: bold;", "color: inherit;",
         "color: #6ec06e; font-weight: bold;", "color: inherit;"
       );
+
+      // Fetch and print Bead Road sequence when entering "Waiting for Bets" (CountDown) state
+      if (newStatus === "CountDown") {
+        fetchAndLogBeadRoad(roomId, displayName);
+      }
 
       // Detailed payout logs including winning points, winner outcome, and exact card sequences
       if (newStatus === "PayOut") {
