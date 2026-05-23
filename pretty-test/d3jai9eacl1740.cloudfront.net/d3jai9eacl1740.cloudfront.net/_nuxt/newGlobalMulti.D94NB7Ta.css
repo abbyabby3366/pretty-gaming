@@ -1,0 +1,28 @@
+.hereTable[data-v-16f68c0a] {
+    align-items: center;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 4px 8px;
+    position: relative
+}
+
+.hereTable img[data-v-16f68c0a] {
+    width: 36px
+}
+
+.bg-table[data-v-16f68c0a] {
+    background-color: #141424;
+    border: 1px solid #3a3a5a;
+    border-radius: 8px;
+    min-height: 200px;
+    padding: 4px 8px;
+    position: relative;
+    width: 382px
+}
+
+@media only screen and (max-width:1023px) {
+    .bg-table[data-v-16f68c0a] {
+        width: 342px
+    }
+}

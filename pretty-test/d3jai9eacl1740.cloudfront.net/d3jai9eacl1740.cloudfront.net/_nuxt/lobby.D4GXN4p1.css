@@ -1,0 +1,202 @@
+.no-scrollbar[data-v-ea54307d]::-webkit-scrollbar {
+    display: none
+}
+
+.no-scrollbar[data-v-ea54307d] {
+    -ms-overflow-style: none;
+    scrollbar-width: none
+}
+
+.setHeight[data-v-a2b83010],
+.tablelist-layout[data-v-a2b83010] {
+    display: flex
+}
+
+.setHeight[data-v-a2b83010] {
+    flex-direction: column;
+    height: 100%;
+    padding-top: 85px
+}
+
+.btn-list[data-v-a2b83010] {
+    display: flex;
+    gap: 12px;
+    padding: 0 50px
+}
+
+.btn-lobby[data-v-a2b83010] {
+    align-items: center;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    justify-content: center;
+    opacity: .3;
+    padding: 5px 4px
+}
+
+.btn-lobby[data-v-a2b83010]:hover {
+    opacity: .5
+}
+
+.btn-lobby.inactive[data-v-a2b83010] {
+    border-bottom: 2px solid #f6e551;
+    opacity: 1
+}
+
+.btn-lobby img[data-v-a2b83010] {
+    height: 34px;
+    width: 34px
+}
+
+.studio-group[data-v-a2b83010] {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 55px;
+    padding-left: 9px
+}
+
+.studio-group .header[data-v-a2b83010] {
+    font-size: 16px
+}
+
+.studio-group .btn-studio[data-v-a2b83010] {
+    align-items: center;
+    display: flex;
+    flex-direction: column;
+    font-size: 12px;
+    gap: 2px;
+    height: 36px;
+    justify-content: center;
+    opacity: 1;
+    width: 38px
+}
+
+.studio-group .btn-studio.inactive[data-v-a2b83010] {
+    color: #f3d376;
+    opacity: 1
+}
+
+.studio-group .btn-studio.inactive img[data-v-a2b83010] {
+    border: 1px solid #f3d376;
+    border-radius: 50%;
+    padding: 1px;
+    width: 30px
+}
+
+.studio-group .btn-studio img[data-v-a2b83010] {
+    width: 24px
+}
+
+@media only screen and (max-width:1023px) {
+    .tablelist-layout[data-v-a2b83010] {
+        display: flex;
+        flex-direction: column
+    }
+    .banner[data-v-a2b83010] {
+        border-radius: 0;
+        height: auto;
+        width: 100%
+    }
+    .setHeight[data-v-a2b83010] {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        padding-top: 43px
+    }
+    .setHeightMUL[data-v-a2b83010] {
+        height: 90%
+    }
+    .btn-list[data-v-a2b83010] {
+        gap: 8px;
+        -webkit-mask: linear-gradient(90deg, hsla(0, 0%, 100%, 0), #fff 5%, #fff 95%, hsla(0, 0%, 100%, 0));
+        mask: linear-gradient(90deg, hsla(0, 0%, 100%, 0), #fff 5%, #fff 95%, hsla(0, 0%, 100%, 0));
+        min-height: 55px;
+        overflow-x: scroll;
+        padding: 0 2%
+    }
+    .btn-lobby[data-v-a2b83010] {
+        padding: 4px
+    }
+    .btn-lobby img[data-v-a2b83010] {
+        height: 18px;
+        width: 18px
+    }
+    .studio-groupMobile[data-v-a2b83010] {
+        position: absolute;
+        right: -11%;
+        top: 70%;
+        transform: translateY(-50%);
+        transition: all .2s ease-in;
+        z-index: 5
+    }
+    .studio-groupMobile .btn-zone[data-v-a2b83010] {
+        background-color: #000c;
+        border-bottom-left-radius: 4px;
+        border-top-left-radius: 4px;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        padding: 9px;
+        z-index: 2
+    }
+    .studio-groupMobile .btn-toggle[data-v-a2b83010] {
+        background-color: #f3d376;
+        border-radius: 25px;
+        height: 80px;
+        left: 55%;
+        position: relative;
+        rotate: 45deg;
+        top: 60%;
+        transform: translate(-50%, -50%);
+        width: 80px;
+        z-index: -1
+    }
+    .studio-groupMobile .btn-toggle .btn-img[data-v-a2b83010] {
+        bottom: 5%;
+        left: 10%;
+        position: absolute;
+        rotate: 135deg
+    }
+    .studio-groupMobile .header[data-v-a2b83010] {
+        font-size: 11px
+    }
+    .studio-groupMobile .btn-studio[data-v-a2b83010] {
+        align-items: center;
+        display: flex;
+        flex-direction: column;
+        font-size: 8px;
+        gap: 2px;
+        height: 24px;
+        justify-content: center;
+        opacity: 1;
+        width: 24px
+    }
+    .studio-groupMobile .btn-studio.inactive[data-v-a2b83010] {
+        color: #f3d376;
+        opacity: 1
+    }
+    .studio-groupMobile .btn-studio.inactive img[data-v-a2b83010] {
+        border: 1px solid #f3d376;
+        border-radius: 50%;
+        padding: 1px;
+        width: 24px
+    }
+    .studio-groupMobile .btn-studio img[data-v-a2b83010] {
+        width: 18px
+    }
+}
+
+.heightMulti[data-v-a2b83010] {
+    height: 82%
+}
+
+.widthMulti[data-v-a2b83010] {
+    padding: 0
+}
+
+@media only screen and (max-width:1023px) {
+    .widthMulti[data-v-a2b83010] {
+        padding: 0 2%
+    }
+}

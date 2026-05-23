@@ -1,0 +1,88 @@
+.main-bg[data-v-73b450b8],
+.main-bg .bg-img[data-v-73b450b8] {
+    height: 100%;
+    width: 100%
+}
+
+.main-bg .bg-img[data-v-73b450b8] {
+    position: relative
+}
+
+.main-bg .bg-img img[data-v-73b450b8] {
+    height: 100%;
+    width: 100%
+}
+
+.main-bg .bg-img .vers[data-v-73b450b8] {
+    bottom: 15%;
+    font-size: 12px;
+    left: 50%;
+    position: absolute;
+    text-shadow: 2px 2px #000;
+    transform: translate(-50%, -50%);
+    z-index: 2
+}
+
+.main-bg .bg-img .loading-zone[data-v-73b450b8] {
+    background-color: #141424;
+    border: 3px solid #fff;
+    border-bottom: 0;
+    border-radius: 15px 15px 0 0;
+    bottom: 0;
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    height: 150px;
+    left: 50%;
+    overflow: hidden;
+    padding: 30px;
+    position: absolute;
+    transform: translate(-50%);
+    width: 400px
+}
+
+@media only screen and (max-width:1023px) {
+    .main-bg .bg-img .loading-zone[data-v-73b450b8] {
+        gap: 10px;
+        height: 100px;
+        padding: 10px 25px;
+        width: 250px
+    }
+}
+
+.main-bg .bg-img .loading-zone .loading-progress[data-v-73b450b8] {
+    background-color: #66667a !important;
+    border-radius: 10px !important;
+    height: 15px;
+    opacity: 1 !important;
+    text-align: left;
+    width: 100%
+}
+
+.main-bg .bg-img .loading-zone .loading-progress .loading-progress-bulb[data-v-73b450b8] {
+    background: #cfa137;
+    border: 1px solid #000;
+    border-radius: 10px;
+    box-shadow: 0 4px 4px #00000040;
+    height: 15px;
+    opacity: 1 !important;
+    position: relative
+}
+
+.main-bg .bg-img .loading-zone .loading-progress .loading-progress-bulb[data-v-73b450b8]:after {
+    content: url(../loading/icon_loading.png);
+    height: 10px;
+    position: absolute;
+    right: 0;
+    top: -7px;
+    width: 10px;
+    z-index: 2
+}
+
+@media only screen and (max-width:1023px) {
+    .main-bg .bg-img .loading-zone .loading-progress .loading-progress-bulb[data-v-73b450b8]:after {
+        right: 0;
+        width: 10px
+    }
+}

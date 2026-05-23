@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="/tcPlayer/TcPlayer.js" defer></script>
+    <script src="/nanoPlayer/nanoplayer.4.min.js" defer></script>
+    <link rel="stylesheet" href="/_nuxt/entry.B3c7WfY6.css">
+    <link rel="modulepreload" as="script" crossorigin href="/_nuxt/entry.BFNHJ093.js">
+    <link rel="prefetch" as="style" href="/_nuxt/default.CW4E-eG-.css">
+    <link rel="prefetch" as="style" href="/_nuxt/Icon.8lQfE3Ql.css">
+    <link rel="prefetch" as="style" href="/_nuxt/gamerules.WbWICqXP.css">
+    <link rel="prefetch" as="script" crossorigin href="/_nuxt/default.B773UDwu.js">
+    <link rel="prefetch" as="script" crossorigin href="/_nuxt/Divider.DMu9loxT.js">
+    <link rel="prefetch" as="script" crossorigin href="/_nuxt/Icon.BriSQLkb.js">
+    <link rel="prefetch" as="script" crossorigin href="/_nuxt/Icon.DDQP7vzt.js">
+    <link rel="prefetch" as="script" crossorigin href="/_nuxt/index.CAZilBRX.js">
+    <link rel="prefetch" as="script" crossorigin href="/_nuxt/_plugin-vue_export-helper.DlAUqK2U.js">
+    <link rel="prefetch" as="script" crossorigin href="/_nuxt/Button.BIubBBJz.js">
+    <link rel="prefetch" as="script" crossorigin href="/_nuxt/close.BqjWTNPe.js">
+    <link rel="prefetch" as="script" crossorigin href="/_nuxt/arrowleft.BOsFqy6t.js">
+    <link rel="prefetch" as="script" crossorigin href="/_nuxt/arrowright.DUKW_HZK.js">
+    <link rel="prefetch" as="script" crossorigin href="/_nuxt/gamerules.rFK4SbEC.js">
+    <link rel="prefetch" as="script" crossorigin href="/_nuxt/videoLoad.Cd0hhZqh.js">
+    <link rel="prefetch" as="style" href="/_nuxt/splashscreen.Bjbvd1Q5.css">
+    <link rel="prefetch" as="script" crossorigin href="/_nuxt/splashscreen.C-Lp5f2R.js">
+    <script type="module" src="/_nuxt/entry.BFNHJ093.js" crossorigin></script>
+    <script>
+        "use strict";
+        (() => {
+            const a = window,
+                e = document.documentElement,
+                c = window.localStorage,
+                d = ["dark", "light"],
+                n = c && c.getItem && c.getItem("nuxt-color-mode") || "white";
+            let l = n === "system" ? f() : n;
+            const i = e.getAttribute("data-color-mode-forced");
+            i && (l = i), r(l), a["__NUXT_COLOR_MODE__"] = {
+                preference: n,
+                value: l,
+                getColorScheme: f,
+                addColorScheme: r,
+                removeColorScheme: u
+            };
+
+            function r(o) {
+                const t = "" + o + "",
+                    s = "";
+                e.classList ? e.classList.add(t) : e.className += " " + t, s && e.setAttribute("data-" + s, o)
+            }
+
+            function u(o) {
+                const t = "" + o + "",
+                    s = "";
+                e.classList ? e.classList.remove(t) : e.className = e.className.replace(new RegExp(t, "g"), ""), s && e.removeAttribute("data-" + s)
+            }
+
+            function m(o) {
+                return a.matchMedia("(prefers-color-scheme" + o + ")")
+            }
+
+            function f() {
+                if (a.matchMedia && m("").media !== "not all") {
+                    for (const o of d)
+                        if (m(":" + o).matches) return o
+                }
+                return "light"
+            }
+        })();
+    </script>
+</head>
+
+<body>
+    <div id="__nuxt"></div>
+    <script type="application/json" id="__NUXT_DATA__" data-ssr="false">
+        [{
+                "_errors": 1,
+                "serverRendered": 2,
+                "data": 3,
+                "state": 4,
+                "once": 5
+            }, {}, false, {}, {},
+            ["Set"]
+        ]
+    </script>
+    <script>
+        window.__NUXT__ = {};
+        window.__NUXT__.config = {
+            public: {
+                baseURL: "https://member-api.aghippo168.com",
+                SOCKET: "wss://socket.aghippo168.com:443",
+                version: "7.3.6",
+                i18n: {
+                    baseUrl: "",
+                    locales: {
+                        en: {
+                            domain: ""
+                        },
+                        th: {
+                            domain: ""
+                        },
+                        thne: {
+                            domain: ""
+                        },
+                        thn: {
+                            domain: ""
+                        },
+                        ths: {
+                            domain: ""
+                        },
+                        zh: {
+                            domain: ""
+                        },
+                        zh2: {
+                            domain: ""
+                        },
+                        kr: {
+                            domain: ""
+                        },
+                        vt: {
+                            domain: ""
+                        },
+                        km: {
+                            domain: ""
+                        },
+                        lo: {
+                            domain: ""
+                        },
+                        id: {
+                            domain: ""
+                        },
+                        ms: {
+                            domain: ""
+                        },
+                        my: {
+                            domain: ""
+                        },
+                        tr: {
+                            domain: ""
+                        },
+                        es: {
+                            domain: ""
+                        },
+                        pt: {
+                            domain: ""
+                        },
+                        bn: {
+                            domain: ""
+                        },
+                        sv: {
+                            domain: ""
+                        },
+                        jp: {
+                            domain: ""
+                        }
+                    }
+                }
+            },
+            app: {
+                baseURL: "/",
+                buildAssetsDir: "/_nuxt/",
+                cdnURL: ""
+            }
+        }
+    </script>
+</body>
+
+</html>

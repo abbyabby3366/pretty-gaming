@@ -1,0 +1,92 @@
+.menu-btn[data-v-5384bc41] {
+    align-items: center;
+    background-color: #3a3a5a;
+    border-radius: 6px;
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    font-size: 14px;
+    gap: 4px;
+    height: 40px;
+    justify-content: center;
+    padding: 8px 12px;
+    white-space: nowrap
+}
+
+.menu-btn.active[data-v-5384bc41] {
+    background-color: #f6e551;
+    color: #000;
+    pointer-events: none
+}
+
+.menu-btn.active2[data-v-5384bc41] {
+    background-color: #141424;
+    border: 1px solid #fff;
+    color: #fff;
+    pointer-events: none
+}
+
+.menu-btn.disabled[data-v-5384bc41] {
+    color: #fff6;
+    pointer-events: none
+}
+
+.menu-btn.disabled svg[data-v-5384bc41] {
+    opacity: .4
+}
+
+@media only screen and (max-width:1023px) {
+    .close[data-v-5384bc41] {
+        height: 24px;
+        position: absolute;
+        right: 12px;
+        top: 12px;
+        width: 24px
+    }
+    .bg-bethistory[data-v-5384bc41] {
+        background: #22223f;
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        max-width: 380px;
+        position: fixed;
+        right: 0;
+        top: 0;
+        width: 100%;
+        z-index: 200
+    }
+    .content[data-v-5384bc41] {
+        height: 100%;
+        overflow: auto;
+        padding: 10px;
+        width: 100%
+    }
+}
+
+@media only screen and (min-width:1023px) {
+    .close[data-v-5384bc41] {
+        height: 24px;
+        position: absolute;
+        right: 12px;
+        top: 12px;
+        width: 24px
+    }
+    .bg-bethistory[data-v-5384bc41] {
+        background: #22223f;
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        position: fixed;
+        right: 0;
+        top: 0;
+        width: 800px;
+        z-index: 200
+    }
+    .content[data-v-5384bc41] {
+        height: 100%;
+        overflow: auto;
+        padding: 10px;
+        width: 100%
+    }
+}

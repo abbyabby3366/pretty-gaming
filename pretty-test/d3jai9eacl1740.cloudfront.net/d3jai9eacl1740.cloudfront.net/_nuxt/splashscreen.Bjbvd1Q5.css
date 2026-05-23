@@ -1,0 +1,41 @@
+html[data-v-0f407413] {
+    overflow: hidden !important
+}
+
+#bg-layout[data-v-0f407413] {
+    background-color: #22223f;
+    background-position: 50%;
+    height: 100%;
+    width: 100%
+}
+
+#outer[data-v-0f407413] {
+    box-shadow: 0 22px 70px 4px #0000008f;
+    height: 768px;
+    left: 50%;
+    overflow: hidden;
+    position: relative;
+    text-align: center;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    transform-origin: center center;
+    transition-delay: 0;
+    -webkit-transition-delay: 0;
+    width: 1366px
+}
+
+@media only screen and (max-width:1023px) {
+    #outer[data-v-0f407413] {
+        height: 620px;
+        width: 360px
+    }
+}
+
+#gamecontainer[data-v-0f407413] {
+    background-color: #141424;
+    content: "";
+    height: 100%;
+    overflow: hidden;
+    position: absolute;
+    width: 100%
+}

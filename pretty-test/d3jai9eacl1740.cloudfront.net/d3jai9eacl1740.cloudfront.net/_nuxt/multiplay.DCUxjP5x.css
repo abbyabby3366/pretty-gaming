@@ -1,0 +1,138 @@
+.desktop-container[data-v-f7d1304e] {
+    display: flex;
+    gap: 40px;
+    height: 85%
+}
+
+@media only screen and (max-width:1023px) {
+    .desktop-container[data-v-f7d1304e] {
+        gap: 0
+    }
+}
+
+.chip-zone[data-v-f7d1304e] {
+    align-items: center;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    height: -moz-fit-content;
+    height: fit-content;
+    overflow: hidden;
+    width: 60px
+}
+
+.chip-zone .chip-setting[data-v-f7d1304e] {
+    background-color: #3a3a5a;
+    border-radius: 50%;
+    padding: 8px
+}
+
+@media only screen and (max-width:1023px) {
+    .chip-zone[data-v-f7d1304e] {
+        background-color: #141424;
+        bottom: 0;
+        flex-direction: row;
+        height: -moz-fit-content;
+        height: fit-content;
+        left: 50%;
+        padding: 10px 12px;
+        position: absolute;
+        transform: translate(-50%);
+        width: 100%;
+        z-index: 0
+    }
+    .chip-zone .chip-setting[data-v-f7d1304e] {
+        height: 40px;
+        width: 40px
+    }
+}
+
+.lobby-content[data-v-f7d1304e] {
+    padding: 0;
+    width: -moz-fit-content;
+    width: fit-content
+}
+
+@media only screen and (max-width:1023px) {
+    .lobby-content[data-v-f7d1304e] {
+        padding: 0 9px;
+        width: -moz-fit-content;
+        width: fit-content
+    }
+}
+
+.top-head[data-v-f7d1304e] {
+    display: flex;
+    width: 100%
+}
+
+@media only screen and (max-width:1023px) {
+    .top-head[data-v-f7d1304e] {
+        flex-wrap: wrap
+    }
+}
+
+.name-zone[data-v-f7d1304e] {
+    display: flex;
+    flex-basis: 100%;
+    width: 100%
+}
+
+.control-zone[data-v-f7d1304e] {
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+    width: auto
+}
+
+@media only screen and (max-width:1023px) {
+    .control-zone[data-v-f7d1304e] {
+        width: 100%
+    }
+}
+
+.control-zone .selectType-zone[data-v-f7d1304e] {
+    background-color: #3a3a5a;
+    border-radius: 4px;
+    display: flex;
+    gap: 2px;
+    padding: 2px
+}
+
+.control-zone .selectType-zone .type-btn[data-v-f7d1304e] {
+    background-color: transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 1px 5px
+}
+
+.control-zone .selectType-zone .type-btn.active[data-v-f7d1304e] {
+    background-color: #fff;
+    color: #000;
+    pointer-events: none
+}
+
+.control-zone .online-zone[data-v-f7d1304e] {
+    background-color: gray;
+    gap: 4px;
+    padding: 4px 8px
+}
+
+.control-zone .betLimit-zone[data-v-f7d1304e],
+.control-zone .online-zone[data-v-f7d1304e] {
+    border-radius: 4px;
+    display: flex;
+    width: -moz-max-content;
+    width: max-content
+}
+
+.control-zone .betLimit-zone[data-v-f7d1304e] {
+    border: 1px solid grey;
+    gap: 2px;
+    padding: 3px 4px
+}
+
+.control-zone .betLimit-zone .arrow-btm[data-v-f7d1304e] {
+    margin-left: 5px;
+    width: 10px
+}
