@@ -188,72 +188,92 @@ class TableStateManager {
 
       // ── Process hand completion cleanly when server transitions to Result ──
       const isResultState = newState.startsWith("Result");
+      const isAlreadyFinalized = ts.deducedBeadRoad && ts.deducedBeadRoad.some(item => item && item.round === newRound);
       if (isResultState && newRound > ts.lastFinalizedRound && newRound > 0) {
-        // Extract cards and subtract them from deck composition
-        let cardsSubtracted = 0;
-        let corruptedReason = null;
-        const allCards = [...table.playerCards, ...table.bankerCards];
+        if (isAlreadyFinalized) {
+          const msg = `[WARNING] ${ts.tableName}: Double-deduction attempt guarded for completed round ${newRound}! Round already present in deduced bead road.`;
+          const rateLimitKey = `${ts.tableName}:double_deduct:${newRound}`;
+          const now = Date.now();
+          const lastSent = this.lastResetNotificationTime ? (this.lastResetNotificationTime.get(rateLimitKey) || 0) : 0;
+          const isSpam = (now - lastSent) < 5 * 60 * 1000;
 
-        for (const card of allCards) {
-          const idx = cardRankToIndex(card);
-          if (idx >= 0) {
-            const impReason = checkImpossibleCard(ts.deckComposition, idx, card);
-            if (impReason && !corruptedReason) {
-              corruptedReason = impReason;
+          if (!isSpam) {
+            console.log(`\x1b[31m${msg}\x1b[0m`);
+            sendWhatsAppNotification(msg).catch(err => console.error("WhatsApp Notification failed:", err));
+            if (this.lastResetNotificationTime) {
+              this.lastResetNotificationTime.set(rateLimitKey, now);
             }
-            if (ts.deckComposition[idx] > 0) {
-              ts.deckComposition[idx]--;
-            }
-            cardsSubtracted++;
-          }
-        }
-
-        if (cardsSubtracted === 0) {
-          ts.consecutiveZeroCardHands++;
-          const ghostReason = checkGhostHands(ts.consecutiveZeroCardHands);
-          if (ghostReason && !corruptedReason) {
-            corruptedReason = ghostReason;
           }
         } else {
-          ts.consecutiveZeroCardHands = 0;
-        }
+          // Extract cards and subtract them from deck composition
+          let cardsSubtracted = 0;
+          let corruptedReason = null;
+          const allCards = [...table.playerCards, ...table.bankerCards];
 
-        ts.handNumber++;
-        ts.lastPlayerCards = table.playerCards.slice();
-        ts.lastBankerCards = table.bankerCards.slice();
-        ts.lastFinalizedRound = newRound;
+          for (const card of allCards) {
+            const idx = cardRankToIndex(card);
+            if (idx >= 0) {
+              const impReason = checkImpossibleCard(ts.deckComposition, idx, card);
+              if (impReason && !corruptedReason) {
+                corruptedReason = impReason;
+              }
+              if (ts.deckComposition[idx] > 0) {
+                ts.deckComposition[idx]--;
+              }
+              cardsSubtracted++;
+            }
+          }
 
-        if (corruptedReason) {
-          this._resetShoe(ts, corruptedReason);
-          events.push({
-            type: "SHOE_RESET",
-            tableName: name,
-            reason: corruptedReason,
-            finalRound: ts.lastRound
-          });
-        } else {
-          if (table.winner) {
-            ts.deducedBeadRoad.push({ 
-              round: newRound, 
+          if (cardsSubtracted === 0) {
+            ts.consecutiveZeroCardHands++;
+            const ghostReason = checkGhostHands(ts.consecutiveZeroCardHands);
+            if (ghostReason && !corruptedReason) {
+              corruptedReason = ghostReason;
+            }
+          } else {
+            ts.consecutiveZeroCardHands = 0;
+            if ((cardsSubtracted < 4 || cardsSubtracted > 6) && !corruptedReason) {
+              corruptedReason = `Invalid state: mathematically impossible cards count (${cardsSubtracted}) for completed round ${newRound}`;
+            }
+          }
+
+          ts.handNumber++;
+          ts.lastPlayerCards = table.playerCards.slice();
+          ts.lastBankerCards = table.bankerCards.slice();
+          ts.lastFinalizedRound = newRound;
+
+          if (corruptedReason) {
+            this._resetShoe(ts, corruptedReason);
+            events.push({
+              type: "SHOE_RESET",
+              tableName: name,
+              reason: corruptedReason,
+              finalRound: ts.lastRound
+            });
+          } else {
+            if (table.winner) {
+              ts.deducedBeadRoad.push({ 
+                round: newRound, 
+                winner: table.winner,
+                playerCards: table.playerCards || [],
+                bankerCards: table.bankerCards || []
+              });
+            }
+
+            events.push({
+              type: "HAND_COMPLETE",
+              tableName: name,
+              tableState: ts,
+              handNumber: ts.handNumber,
+              round: newRound,
+              playerCards: table.playerCards,
+              bankerCards: table.bankerCards,
+              cardsSubtracted: cardsSubtracted,
+              deckRemaining: ts.remaining,
+              deckComposition: [...ts.deckComposition],
               winner: table.winner,
-              playerCards: table.playerCards || [],
-              bankerCards: table.bankerCards || []
             });
           }
-
-          events.push({
-            type: "HAND_COMPLETE",
-            tableName: name,
-            tableState: ts,
-            handNumber: ts.handNumber,
-            round: newRound,
-            playerCards: table.playerCards,
-            bankerCards: table.bankerCards,
-            cardsSubtracted: cardsSubtracted,
-            deckRemaining: ts.remaining,
-            deckComposition: [...ts.deckComposition],
-            winner: table.winner,
-          });
         }
       }
 
