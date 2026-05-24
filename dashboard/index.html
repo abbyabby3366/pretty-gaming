@@ -274,9 +274,20 @@
 
         const deducedList = [];
         for (let rNum = 1; rNum <= totalRounds; rNum++) {
-          const w = deducedMap[rNum];
+          const item = (t.deducedBeadRoad || []).find(x => x && (x.round === rNum || (typeof x === 'object' && x.round === rNum)));
+          const w = item ? (typeof item === 'object' ? item.winner : item) : deducedMap[rNum];
+          
           if (w) {
-            deducedList.push(`<div class="bead-col"><span class="bead-num">${rNum}</span><span class="bead ${w}">${w}</span></div>`);
+            let titleText = `Round ${rNum}`;
+            if (item && typeof item === 'object') {
+              if (item.playerCards && item.playerCards.length) {
+                titleText += `\nPlayer: [${item.playerCards.join(', ')}]`;
+              }
+              if (item.bankerCards && item.bankerCards.length) {
+                titleText += `\nBanker: [${item.bankerCards.join(', ')}]`;
+              }
+            }
+            deducedList.push(`<div class="bead-col"><span class="bead-num">${rNum}</span><span class="bead ${w}" title="${titleText}">${w}</span></div>`);
           } else {
             deducedList.push(`<div class="bead-col"><span class="bead-num">${rNum}</span><span class="bead" style="background:transparent; visibility:hidden;"></span></div>`);
           }

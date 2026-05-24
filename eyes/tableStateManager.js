@@ -233,7 +233,12 @@ class TableStateManager {
           });
         } else {
           if (table.winner) {
-            ts.deducedBeadRoad.push({ round: newRound, winner: table.winner });
+            ts.deducedBeadRoad.push({ 
+              round: newRound, 
+              winner: table.winner,
+              playerCards: table.playerCards || [],
+              bankerCards: table.bankerCards || []
+            });
           }
 
           events.push({
