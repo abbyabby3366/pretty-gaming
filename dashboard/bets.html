@@ -35,6 +35,8 @@
     .status-FAILED {color:var(--red);}
     .status-UNPLACED {color:var(--dim);}
     .status-WRONG_AMOUNT {color:var(--orange);}
+    .status-EXPIRED {color:var(--dim);font-style:italic;}
+    .status-DISPATCH_FAILED {color:var(--orange);}
     
     .target-PlayerBet, .target-Player {color:var(--blue);}
     .target-BankerBet, .target-Banker {color:var(--red);}
@@ -255,7 +257,7 @@
               <span class="${statusCls}" style="font-weight:600;">${b.outcome}</span>
               ${b.timer != null ? `<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:rgba(255,255,255,0.06);color:${b.timer >= 5 ? 'var(--green)' : (b.timer >= 3 ? 'var(--yellow)' : 'var(--red)')};font-weight:600;">⏱ ${b.timer}s</span>` : ''}
             </div>
-            ${(b.outcome === 'UNPLACED' || b.outcome === 'NETWORK_ERROR') && b.executionState && b.executionState.reason ? `<div onclick="this.classList.toggle('expanded')" class="reason-truncate" title="Click to expand">${b.executionState.reason}</div>` : ''}
+            ${['UNPLACED', 'NETWORK_ERROR', 'EXPIRED', 'DISPATCH_FAILED'].includes(b.outcome) && b.executionState && b.executionState.reason ? `<div onclick="this.classList.toggle('expanded')" class="reason-truncate" title="Click to expand">${b.executionState.reason}</div>` : ''}
           </td>
           <td>
             <div style="font-weight:600;font-size:14px;color:${b.roundOutcome==='UNKNOWN'?'var(--dim)':(b.roundOutcome==='WAITING'?'var(--yellow)':'var(--purple)')}">${b.roundOutcome}</div>
@@ -650,6 +652,8 @@
           <option value="AUTOBET_OFF">Autobet Off</option>
           <option value="NO_MODULES_ONLINE">No Modules Online</option>
           <option value="NETWORK_ERROR">Network Error</option>
+          <option value="EXPIRED">Expired</option>
+          <option value="DISPATCH_FAILED">Dispatch Failed</option>
         </select>
       </div>
       <div class="form-group">

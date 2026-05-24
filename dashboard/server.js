@@ -241,6 +241,49 @@ function resolveBetModuleTarget() {
 function processCentralQueue() {
   if (centralBetQueue.length === 0) return;
 
+  // ─── STALE BET PURGE (QUEUE TTL) ───
+  const now = Date.now();
+  const QUEUE_TTL_MS = 15000; // Max 15 seconds allowed in queue
+
+  while (centralBetQueue.length > 0) {
+    const oldestBet = centralBetQueue[0];
+    const betAge = now - new Date(oldestBet.time).getTime();
+
+    if (betAge > QUEUE_TTL_MS) {
+      console.log(
+        `\x1b[33m[Central] Purged stale bet ${oldestBet.id} (Age: ${Math.round(betAge / 1000)}s > ${QUEUE_TTL_MS / 1000}s)\x1b[0m`
+      );
+      // Remove from the queue
+      centralBetQueue.shift();
+
+      // Update outcome to EXPIRED in-memory and in DB
+      oldestBet.outcome = "EXPIRED";
+      oldestBet.executionState = {
+        status: "EXPIRED",
+        reason: `Queue TTL exceeded (${Math.round(betAge / 1000)}s)`,
+      };
+
+      if (dbCollection) {
+        dbCollection
+          .updateOne(
+            { id: oldestBet.id },
+            {
+              $set: {
+                outcome: oldestBet.outcome,
+                executionState: oldestBet.executionState,
+              },
+            },
+          )
+          .catch(() => {});
+      }
+    } else {
+      // The oldest bet is still fresh, so all subsequent bets are also fresh
+      break;
+    }
+  }
+
+  if (centralBetQueue.length === 0) return;
+
   const targetResult = resolveBetModuleTarget();
   if (!targetResult) {
     // Debug logging to understand why targetResult is null
