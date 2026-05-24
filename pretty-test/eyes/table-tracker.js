@@ -1,6 +1,6 @@
 // ================= CONFIGURATION =================
 // Set to "ALL" to watch all tables, or a specific visual name like "Prettyonsexy01"
-const WATCHED_TABLE = "Prettyonsexy01";
+const WATCHED_TABLE = "Prettyonsexy03";
 // const WATCHED_TABLE = "ALL";
 // =================================================
 
@@ -61,17 +61,17 @@ const WATCHED_TABLE = "Prettyonsexy01";
 
   // --- BEAD ROAD INTEGRATION ---
   const outcomeMap = {
-    "b":   { label: "Banker Win",                 emoji: "🔴" },
-    "bb":  { label: "Banker Win + Banker Pair",   emoji: "🔴" },
-    "bp":  { label: "Banker Win + Player Pair",   emoji: "🔴" },
-    "bpb": { label: "Banker Win + Both Pairs",    emoji: "🔴" },
-    "p":   { label: "Player Win",                 emoji: "🔵" },
-    "pb":  { label: "Player Win + Banker Pair",   emoji: "🔵" },
-    "pp":  { label: "Player Win + Player Pair",   emoji: "🔵" },
-    "t":   { label: "Tie Win",                    emoji: "🟢" },
-    "tb":  { label: "Tie Win + Banker Pair",      emoji: "🟢" },
-    "tp":  { label: "Tie Win + Player Pair",      emoji: "🟢" },
-    "n":   { label: "Empty",                      emoji: "⚪" }
+    "b": { label: "Banker Win", emoji: "🔴" },
+    "bb": { label: "Banker Win + Banker Pair", emoji: "🔴" },
+    "bp": { label: "Banker Win + Player Pair", emoji: "🔴" },
+    "bpb": { label: "Banker Win + Both Pairs", emoji: "🔴" },
+    "p": { label: "Player Win", emoji: "🔵" },
+    "pb": { label: "Player Win + Banker Pair", emoji: "🔵" },
+    "pp": { label: "Player Win + Player Pair", emoji: "🔵" },
+    "t": { label: "Tie Win", emoji: "🟢" },
+    "tb": { label: "Tie Win + Banker Pair", emoji: "🟢" },
+    "tp": { label: "Tie Win + Player Pair", emoji: "🟢" },
+    "n": { label: "Empty", emoji: "⚪" }
   };
 
   function getDetailedLabel(code) {
@@ -183,7 +183,7 @@ const WATCHED_TABLE = "Prettyonsexy01";
           }
         }
       }
-    } catch (e) {}
+    } catch (e) { }
 
     // Fallback: check packet data statistics
     if (packet) {
@@ -397,7 +397,7 @@ const WATCHED_TABLE = "Prettyonsexy01";
       if (pinia && pinia._s) {
         // pinia._s can be a Map or a plain Object cache of active store instances
         const storeKeys = pinia._s.keys ? Array.from(pinia._s.keys()) : Object.keys(pinia._s);
-        
+
         for (const key of storeKeys) {
           if (key.toLowerCase().includes('baccarat')) {
             const store = pinia._s.get ? pinia._s.get(key) : pinia._s[key];
@@ -496,7 +496,7 @@ const WATCHED_TABLE = "Prettyonsexy01";
               if (socket) {
                 hookSocketIoInstance(socket);
                 count++;
-                
+
                 // Fallback: Hook underlying WebSocket transport too
                 const ws = socket.io && socket.io.engine && socket.io.engine.transport && socket.io.engine.transport.ws;
                 if (ws) {
@@ -544,7 +544,7 @@ const WATCHED_TABLE = "Prettyonsexy01";
       const socket = originalIo.apply(this, args);
       if (socket) {
         hookSocketIoInstance(socket);
-        
+
         try {
           if (socket.io) {
             socket.io.on("open", () => {

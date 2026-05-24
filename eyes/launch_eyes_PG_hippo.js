@@ -21,7 +21,7 @@ const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
     fs.writeFileSync(tsFile, JSON.stringify(timestamps, null, 2));
   } catch (e) {}
 
-  const extractorPath = path.join(__dirname, "dom_extractor.js");
+  const extractorPath = path.join(__dirname, "interceptor.js");
   const extractorCode = fs.readFileSync(extractorPath, "utf8");
 
 

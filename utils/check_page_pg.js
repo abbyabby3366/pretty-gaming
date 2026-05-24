@@ -96,9 +96,21 @@ async function checkPGpage(page, logger) {
     logger.warn("Could not find 'Multiplay' button within timeout.");
   }
 
-  // User request: wait 30 more seconds after clicking multiplay before marking as ready
-  logger.log("Waiting 30 more seconds for tables to fully load...");
-  await sleep(30000);
+  // Check if the page is already running (i.e. has active table states in cache or lobby elements loaded)
+  const isAlreadyRunning = await page.evaluate(() => {
+    return (
+      (window.__tableStatesCache && Object.keys(window.__tableStatesCache).length > 0) ||
+      !!document.querySelector(".lobby-content")
+    );
+  }).catch(() => false);
+
+  if (isAlreadyRunning) {
+    logger.log("Page is already running (tables already loaded). Waiting 5 seconds...");
+    await sleep(5000);
+  } else {
+    logger.log("Waiting 30 seconds for tables to fully load...");
+    await sleep(30000);
+  }
 }
 
 module.exports = {

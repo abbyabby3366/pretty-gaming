@@ -132,7 +132,7 @@ function sendSignals(events) {
         instanceID: "PG_Eyes",
         tableNumber: event.tableName,
         status: { setup: "READY", autoBet: true, gameState: "ROUND_COMPLETE" },
-        ocr: { roundNumber: String(event.round - 1), winner: event.winner || "UNKNOWN" },
+        ocr: { roundNumber: String(event.round), winner: event.winner || "UNKNOWN" },
         metrics: { deckRemaining: event.deckRemaining || ts.remaining },
         mathematics: {} // Not needed for outcome
       };
@@ -260,6 +260,8 @@ function writeStateJson(tables, timestamp, events, allScrapedTables = [], ignore
       bufferedCards: ts ? ts.bufferedCards : { player: [], banker: [] },
       lastErrorResetReason: ts ? ts.lastErrorResetReason : null,
       lastErrorResetTime: ts ? ts.lastErrorResetTime : null,
+      deducedBeadRoad: ts ? ts.deducedBeadRoad : [],
+      sourceBeadRoad: table.statistics || [],
 
       // ── EV results (from previous calculation, updated after Step 3) ──
       ev: ts && ts.lastEvResult
@@ -307,6 +309,8 @@ function writeStateJson(tables, timestamp, events, allScrapedTables = [], ignore
 
 // ─── Main Orchestrator ───────────────────────────────────────────────────
 
+const hookedPages = new Set();
+
 async function runEyesPG(pageOrRef, extractorCode, acctConfig) {
   let consecutiveErrors = 0;
   
@@ -331,6 +335,23 @@ async function runEyesPG(pageOrRef, extractorCode, acctConfig) {
         const startTime = Date.now();
         const currentPage = getPage();
 
+        // Inject/Hook interceptor script once per page session
+        if (!hookedPages.has(currentPage)) {
+          hookedPages.add(currentPage);
+          
+          // Evaluate once immediately to hook running sockets/Pinia
+          await currentPage.evaluate(extractorCode).catch(e => {
+            console.error("[runEyes] Immediate interceptor evaluation failed:", e.message);
+          });
+          
+          // Bind to all future loads/navigations
+          await currentPage.evaluateOnNewDocument(extractorCode).catch(e => {
+            console.error("[runEyes] evaluateOnNewDocument interceptor registration failed:", e.message);
+          });
+          
+          console.log("\x1b[36m[runEyes] Successfully hooked/preregistered state-interceptors.\x1b[0m");
+        }
+
       // Step 1: Scrape
       const data = await scrapePG(currentPage, extractorCode, acctConfig);
       if (!data) {
@@ -339,6 +360,9 @@ async function runEyesPG(pageOrRef, extractorCode, acctConfig) {
       }
 
       let { text, tables } = data;
+      
+      // Update active state timestamp to prevent false positive stale checks
+      lastStateChangeTime = Date.now();
 
       // Write human-readable text log
       const timestamp = new Date()

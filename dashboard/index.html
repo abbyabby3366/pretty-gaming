@@ -79,6 +79,19 @@
     .tog:hover{border-color:var(--cyan);color:var(--cyan);}
     .tog.on{border-color:var(--cyan);color:var(--cyan);}
     body.hide-deck .dk{display:none!important;}
+    body.hide-deck .dk-roads{display:none!important;}
+    .tc .bead-roads { margin-top: 3px; border-top: 1px dashed var(--border); padding-top: 3px; font-size: 8px; display: flex; flex-direction: column; gap: 2px; }
+    .tc .bead-road-row { display: flex; align-items: flex-start; gap: 4px; }
+    .tc .bead-road-label { color: var(--dim); width: 45px; flex-shrink: 0; margin-top: 2px; }
+    .tc .bead-road-list { display: flex; flex-wrap: wrap; gap: 2px; flex: 1; padding-bottom: 2px; }
+    .bead-col { display: flex; flex-direction: column; align-items: center; gap: 2px; flex-shrink: 0; }
+    .bead-num { font-size: 6px; color: var(--dim); line-height: 1; }
+    .tc .bead { width: 10px; height: 10px; border-radius: 50%; display: inline-block; text-align: center; line-height: 10px; font-size: 7px; font-weight: bold; color: #fff; flex-shrink: 0; }
+    .bead.P { background: var(--blue); }
+    .bead.B { background: var(--red); }
+    .bead.T { background: var(--green); }
+    .bead-road-list::-webkit-scrollbar { height: 2px; }
+    .bead-road-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 1px; }
 
     /* Modal Styles */
     .modal-overlay { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); align-items:center; justify-content:center; z-index:100; }
@@ -223,6 +236,70 @@
         }).join('')+'</div>';
       }
 
+      let roadsHtml = '';
+      if (t.deducedBeadRoad || t.sourceBeadRoad) {
+        const mapSourceWinner = (code) => {
+          if (!code) return '';
+          if (code.startsWith('p')) return 'P';
+          if (code.startsWith('b')) return 'B';
+          if (code.startsWith('t')) return 'T';
+          return '';
+        };
+
+        const isShuffling = t.state && t.state.toLowerCase().includes('shuff');
+        const totalRounds = isShuffling ? 0 : (t.sourceBeadRoad ? t.sourceBeadRoad.length : 0);
+        const deducedMap = {};
+        
+        if (!isShuffling) {
+          (t.deducedBeadRoad || []).forEach(item => {
+            if (item && typeof item === 'object') {
+              deducedMap[item.round] = item.winner;
+            }
+          });
+
+          // Backward compatibility fallback for legacy string array states
+          const legacyStringList = (t.deducedBeadRoad || []).filter(item => typeof item === 'string');
+          if (legacyStringList.length > 0) {
+            const totalDeduced = t.deducedBeadRoad.length;
+            const isResult = t.state && t.state.startsWith('Result');
+            const lastCompletedRound = isResult ? t.round : t.round - 1;
+            t.deducedBeadRoad.forEach((item, idx) => {
+              if (typeof item === 'string') {
+                const rNum = lastCompletedRound - (totalDeduced - 1 - idx);
+                deducedMap[rNum] = item;
+              }
+            });
+          }
+        }
+
+        const deducedList = [];
+        for (let rNum = 1; rNum <= totalRounds; rNum++) {
+          const w = deducedMap[rNum];
+          if (w) {
+            deducedList.push(`<div class="bead-col"><span class="bead-num">${rNum}</span><span class="bead ${w}">${w}</span></div>`);
+          } else {
+            deducedList.push(`<div class="bead-col"><span class="bead-num">${rNum}</span><span class="bead" style="background:transparent; visibility:hidden;"></span></div>`);
+          }
+        }
+
+        const sourceList = isShuffling ? '' : (t.sourceBeadRoad || []).map((code, index) => {
+          const w = mapSourceWinner(code);
+          const roundNum = index + 1;
+          return w ? `<div class="bead-col"><span class="bead-num">${roundNum}</span><span class="bead ${w}">${w}</span></div>` : '';
+        }).join('');
+
+        roadsHtml = `<div class="dk-roads bead-roads">
+          <div class="bead-road-row">
+            <span class="bead-road-label">Deduced:</span>
+            <div class="bead-road-list">${deducedList.join('') || '<span style="color:var(--dim)">—</span>'}</div>
+          </div>
+          <div class="bead-road-row">
+            <span class="bead-road-label">Source:</span>
+            <div class="bead-road-list">${sourceList || '<span style="color:var(--dim)">—</span>'}</div>
+          </div>
+        </div>`;
+      }
+
       let evH='';
       if(t.ev){
         const pa=t.ev.player.ev,ba=t.ev.banker.ev;
@@ -251,7 +328,7 @@
         <div class="top"><span class="name">${t.tableName}</span><span class="st ${stCls(t.state)}">${t.state||'—'}</span></div>
         <div class="pbar"><div class="f" style="width:${pct}%;background:${col}"></div></div>
         <div class="info"><span style="color:var(--text)">H${t.handNumber}</span><span style="color:var(--text)">R${t.round}</span><span class="p">P${t.wins?.P??0}</span><span class="b">B${t.wins?.B??0}</span><span class="t">T${t.wins?.T??0}</span><span style="margin-left:auto">${t.deckRemaining}/416</span></div>
-        ${lc}${dk}${evH}${errorHtml}
+        ${lc}${dk}${roadsHtml}${evH}${errorHtml}
       </div>`;
     }
 
