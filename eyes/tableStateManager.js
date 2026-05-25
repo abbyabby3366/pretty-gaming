@@ -175,13 +175,26 @@ class TableStateManager {
 
 
 
-      // ── Reset shoe instantly on Shuffling state ──
-      if (newState === "Shuffling" && prevState !== "Shuffling") {
-        this._resetShoe(ts, "Shuffling state detected");
+      // ── Bulletproof Shoe Reset Fallbacks (e.g. if we missed "Shuffling" state transition) ──
+      let forceReset = false;
+      let resetReason = "";
+
+      if (newRound === 1 && ts.lastRound > 10) {
+        forceReset = true;
+        resetReason = `Fresh round 1 starting (last round was ${ts.lastRound})`;
+      } else if (table.statistics && table.statistics.length === 0 && ts.lastRound > 0 && newState !== "Shuffling") {
+        forceReset = true;
+        resetReason = "Server statistics array cleared to empty";
+      }
+
+      // ── Reset shoe instantly on Shuffling state or Fallback Triggers ──
+      if (forceReset || (newState === "Shuffling" && prevState !== "Shuffling")) {
+        const reason = resetReason || "Shuffling state detected";
+        this._resetShoe(ts, reason);
         events.push({
           type: "SHOE_RESET",
           tableName: name,
-          reason: "Shuffling state detected",
+          reason: reason,
           isActualShuffle: true,
           finalRound: ts.lastRound
         });
