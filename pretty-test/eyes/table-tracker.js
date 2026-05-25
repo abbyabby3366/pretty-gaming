@@ -331,6 +331,8 @@ const WATCHED_TABLE = "Prettyonsexy03";
       // Detailed payout logs including winning points, winner outcome, and exact card sequences
       if (newStatus === "PayOut") {
         const result = packet.result || piniaState?.result;
+        const stats = packet.statistics || piniaState?.statistics || [];
+
         if (result && result.rsBc) {
           const rs = result.rsBc;
           const pCards = [rs.player_1, rs.player_2, rs.player_3].filter(c => c && c !== "null" && c !== "Red");
@@ -338,12 +340,12 @@ const WATCHED_TABLE = "Prettyonsexy03";
           const pPoints = rs.player123;
           const bPoints = rs.banker123;
 
-          let outcomeText = "Calculating...";
+          let outcomeText = "Awaiting Server Statistics...";
           let outcomeColor = "color: #909399; font-weight: bold;";
+          const pCardStr = pCards.join(",");
+          const bCardStr = bCards.join(",");
 
           if (pPoints !== undefined && bPoints !== undefined) {
-            const pCardStr = pCards.join(",");
-            const bCardStr = bCards.join(",");
             if (pPoints > bPoints) {
               outcomeText = `🔵 Player (${pPoints} vs ${bPoints}) [${pCardStr} vs ${bCardStr}]`;
               outcomeColor = "color: #58a6ff; font-weight: bold;";
@@ -352,6 +354,31 @@ const WATCHED_TABLE = "Prettyonsexy03";
               outcomeColor = "color: #ff7b72; font-weight: bold;";
             } else {
               outcomeText = `🟢 Tie (${pPoints} - ${bPoints}) [${pCardStr} vs ${bCardStr}]`;
+              outcomeColor = "color: #7ee787; font-weight: bold;";
+            }
+          }
+
+          function mapServerCodeToWinner(code) {
+            if (!code) return null;
+            const c = code.toLowerCase();
+            if (c.startsWith('p')) return 'Player';
+            if (c.startsWith('b')) return 'Banker';
+            if (c.startsWith('t')) return 'Tie';
+            return null;
+          }
+
+          if (stats && stats.length >= roundCount) {
+            const serverCode = stats[roundCount - 1];
+            const winner = mapServerCodeToWinner(serverCode);
+
+            if (winner === "Player") {
+              outcomeText = `🔵 Player (${pPoints} vs ${bPoints}) [${pCardStr} vs ${bCardStr}] (Server Code: ${serverCode})`;
+              outcomeColor = "color: #58a6ff; font-weight: bold;";
+            } else if (winner === "Banker") {
+              outcomeText = `🔴 Banker (${bPoints} vs ${pPoints}) [${pCardStr} vs ${bCardStr}] (Server Code: ${serverCode})`;
+              outcomeColor = "color: #ff7b72; font-weight: bold;";
+            } else if (winner === "Tie") {
+              outcomeText = `🟢 Tie (${pPoints} - ${bPoints}) [${pCardStr} vs ${bCardStr}] (Server Code: ${serverCode})`;
               outcomeColor = "color: #7ee787; font-weight: bold;";
             }
           }

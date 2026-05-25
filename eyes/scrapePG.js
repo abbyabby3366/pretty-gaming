@@ -26,29 +26,66 @@ async function scrapePG(page, unused_extractorCode, acctConfig = {}) {
       "Shuffle": "Shuffling"
     };
 
+    function mapServerCodeToWinner(code) {
+      if (!code) return null;
+      const c = code.toLowerCase();
+      if (c.startsWith('p')) return 'P';
+      if (c.startsWith('b')) return 'B';
+      if (c.startsWith('t')) return 'T';
+      return null;
+    }
+
     let tableIndex = 1;
     for (const [roomId, entry] of Object.entries(cache)) {
       const name = roomMap[roomId] || roomId;
+      const stats = entry.statistics || [];
       
+      const pWins = stats.filter(c => c.startsWith('p')).length;
+      const bWins = stats.filter(c => c.startsWith('b')).length;
+      const tWins = stats.filter(c => c.startsWith('t')).length;
+
+      // Compute active round number based on current packet status
+      let roundNumber = entry.round || stats.length;
+      if (!entry.round) {
+        if (entry.status === "CountDown" || entry.status === "showResult" || entry.status === "PayOut") {
+          roundNumber = stats.length + 1;
+        }
+      }
+
       // Determine standardized state
       let state = stateMapping[entry.status] || entry.status || "Waiting for Bets";
       let winner = null;
 
-      // Check for winner outcome inside PayOut state
-      if (entry.status === "PayOut" && entry.result && entry.result.rsBc) {
-        const rs = entry.result.rsBc;
-        const pPoints = rs.player123;
-        const bPoints = rs.banker123;
-        if (pPoints !== undefined && bPoints !== undefined) {
-          if (pPoints > bPoints) {
+      // Extract winner outcome inside PayOut state
+      if (entry.status === "PayOut") {
+        if (entry.result && entry.result.rsBc) {
+          const rs = entry.result.rsBc;
+          const pPoints = rs.player123;
+          const bPoints = rs.banker123;
+          if (pPoints !== undefined && bPoints !== undefined) {
+            if (pPoints > bPoints) {
+              state = "Result (Player Win)";
+              winner = "P";
+            } else if (pPoints < bPoints) {
+              state = "Result (Banker Win)";
+              winner = "B";
+            } else {
+              state = "Result (Tie Win)";
+              winner = "T";
+            }
+          }
+        }
+
+        // Fallback to server statistics if point-based check not available or didn't set winner
+        if (!winner && stats.length >= roundNumber) {
+          const serverCode = stats[roundNumber - 1];
+          winner = mapServerCodeToWinner(serverCode);
+          if (winner === "P") {
             state = "Result (Player Win)";
-            winner = "P";
-          } else if (pPoints < bPoints) {
+          } else if (winner === "B") {
             state = "Result (Banker Win)";
-            winner = "B";
-          } else {
+          } else if (winner === "T") {
             state = "Result (Tie Win)";
-            winner = "T";
           }
         }
       }
@@ -71,20 +108,6 @@ async function scrapePG(page, unused_extractorCode, acctConfig = {}) {
             allCards.push(c);
           }
         });
-      }
-
-      // Compute wins statistics from server statistics history
-      const stats = entry.statistics || [];
-      const pWins = stats.filter(c => c.startsWith('p')).length;
-      const bWins = stats.filter(c => c.startsWith('b')).length;
-      const tWins = stats.filter(c => c.startsWith('t')).length;
-
-      // Compute active round number based on current packet status
-      let roundNumber = entry.round || stats.length;
-      if (!entry.round) {
-        if (entry.status === "CountDown" || entry.status === "showResult" || entry.status === "PayOut") {
-          roundNumber = stats.length + 1;
-        }
       }
 
       tableData.push({
