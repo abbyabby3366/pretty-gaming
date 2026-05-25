@@ -299,133 +299,147 @@ async function launchAccount(acctConfig) {
     
     logger.log(`Initial state detected: ${currentState}`);
     
-    let safetyCounter = 0;
-    while (currentState !== STATES.IN_GAME && safetyCounter < 10) {
-      safetyCounter++;
-      logger.log(`Executing state: ${currentState}`);
-      
-      if (currentState === STATES.UNINITIALIZED) {
-        logger.log("Navigating to winboxmalay...");
-        await page.goto(urls.login, { waitUntil: "networkidle2", timeout: TIMEOUTS.navigationWait }).catch(() => {});
-        await sleep(1500);
-      } else if (currentState === STATES.WINBOX_LOGIN) {
-        logger.log("Handling WINBOX_LOGIN...");
-        for (const frame of page.frames()) {
-          try {
-            const popupBtns = await frame.$$(SELECTORS.loginPopup);
-            for (const btn of popupBtns) {
-              if ((await frame.evaluate(el => el.textContent, btn)).includes("Log In")) {
-                await btn.click(); await sleep(500); break;
-              }
-            }
-          } catch(e) {}
-        }
+    try {
+      let safetyCounter = 0;
+      while (currentState !== STATES.IN_GAME && safetyCounter < 10) {
+        safetyCounter++;
+        logger.log(`Executing state: ${currentState}`);
         
-        let loginFrame = page;
-        for (const frame of page.frames()) if (await frame.$(SELECTORS.uid).catch(()=>null)) { loginFrame = frame; break; }
-        
-        await loginFrame.$eval(SELECTORS.uid, el => el.value = "").catch(() => {});
-        await loginFrame.type(SELECTORS.uid, credentials.email, { delay: 10 });
-        await loginFrame.$eval(SELECTORS.password, el => el.value = "").catch(() => {});
-        await loginFrame.type(SELECTORS.password, credentials.password, { delay: 10 });
-        await sleep(500);
-        
-        const buttons = await loginFrame.$$("button");
-        for (const button of buttons) {
-          if ((await loginFrame.evaluate(el => el.textContent, button)).includes("Log In")) {
-            await button.click(); break;
-          }
-        }
-        logger.log("Login submitted. Waiting for dashboard...");
-        writeLoginTimestamp(acctConfig.label);
-        await sleep(TIMEOUTS.dashboardWait);
-      } else if (currentState === STATES.WINBOX_DASHBOARD) {
-        logger.log("Handling WINBOX_DASHBOARD...");
-        
-        let dialogHandled = false;
-        for (const frame of page.frames()) {
-          try {
-            const buttons = await frame.$$("button");
-            let action = null;
-            let matchedButton = null;
-
-            for (const button of buttons) {
-              const text = await frame.evaluate((el) => el.textContent, button);
-              if (text.trim().includes("Quit Game")) {
-                matchedButton = button;
-                action = "quit";
-                break;
-              } else if (text.trim().includes("Start Game")) {
-                matchedButton = button;
-                action = "start";
-                break;
-              }
-            }
-
-            if (action === "quit") {
-              logger.log("Found 'Quit Game' button. Clicking to exit previous session...");
-              await matchedButton.click().catch(() => {});
-              await sleep(4000);
-              dialogHandled = true;
-            } else if (action === "start") {
-              logger.log("Found 'Start Game' button. Clicking...");
-              const newTargetPromise = browser.waitForTarget((t) => t.opener() === page.target(), { timeout: TIMEOUTS.tabWait }).catch(() => null);
-              await matchedButton.click().catch(() => {});
-              
-              const newTarget = await newTargetPromise;
-              if (newTarget) {
-                page = await newTarget.page();
-                await sleep(2500);
-              }
-              dialogHandled = true;
-            }
-          } catch (e) {}
-          if (dialogHandled) break;
-        }
-
-        if (!dialogHandled) {
-          let gameClicked = false;
-          
-          // Wait for dashboard to settle
+        if (currentState === STATES.UNINITIALIZED) {
+          logger.log("Navigating to winboxmalay...");
+          await page.goto(urls.login, { waitUntil: "networkidle2", timeout: TIMEOUTS.navigationWait }).catch(() => {});
           await sleep(1500);
-          
-          // Find and click the Pretty Gaming icon
+        } else if (currentState === STATES.WINBOX_LOGIN) {
+          logger.log("Handling WINBOX_LOGIN...");
           for (const frame of page.frames()) {
             try {
-              const pgIcon = await frame.$(SELECTORS.prettyGamingIcon);
-              if (pgIcon) {
-                logger.log("Found Pretty Gaming icon. Clicking...");
-                await pgIcon.click();
-                gameClicked = true;
-                break;
+              const popupBtns = await frame.$$(SELECTORS.loginPopup);
+              for (const btn of popupBtns) {
+                if ((await frame.evaluate(el => el.textContent, btn)).includes("Log In")) {
+                  await btn.click(); await sleep(500); break;
+                }
               }
             } catch(e) {}
-            if (gameClicked) break;
           }
           
-          if (gameClicked) {
-             logger.log("Waiting for game dialog to appear...");
-             await sleep(3000); 
-          } else {
-             logger.warn("Could not find Pretty Gaming icon in dashboard.");
+          let loginFrame = page;
+          for (const frame of page.frames()) if (await frame.$(SELECTORS.uid).catch(()=>null)) { loginFrame = frame; break; }
+          
+          await loginFrame.$eval(SELECTORS.uid, el => el.value = "").catch(() => {});
+          await loginFrame.type(SELECTORS.uid, credentials.email, { delay: 10 });
+          await loginFrame.$eval(SELECTORS.password, el => el.value = "").catch(() => {});
+          await loginFrame.type(SELECTORS.password, credentials.password, { delay: 10 });
+          await sleep(500);
+          
+          const buttons = await loginFrame.$$("button");
+          for (const button of buttons) {
+            if ((await loginFrame.evaluate(el => el.textContent, button)).includes("Log In")) {
+              await button.click(); break;
+            }
           }
+          logger.log("Login submitted. Waiting for dashboard...");
+          writeLoginTimestamp(acctConfig.label);
+          await sleep(TIMEOUTS.dashboardWait);
+        } else if (currentState === STATES.WINBOX_DASHBOARD) {
+          logger.log("Handling WINBOX_DASHBOARD...");
+          
+          let dialogHandled = false;
+          for (const frame of page.frames()) {
+            try {
+              const buttons = await frame.$$("button");
+              let action = null;
+              let matchedButton = null;
+  
+              for (const button of buttons) {
+                const text = await frame.evaluate((el) => el.textContent, button);
+                if (text.trim().includes("Quit Game")) {
+                  matchedButton = button;
+                  action = "quit";
+                  break;
+                } else if (text.trim().includes("Start Game")) {
+                  matchedButton = button;
+                  action = "start";
+                  break;
+                }
+              }
+  
+              if (action === "quit") {
+                logger.log("Found 'Quit Game' button. Clicking to exit previous session...");
+                await matchedButton.click().catch(() => {});
+                await sleep(4000);
+                dialogHandled = true;
+              } else if (action === "start") {
+                logger.log("Found 'Start Game' button. Clicking...");
+                const newTargetPromise = browser.waitForTarget((t) => t.opener() === page.target(), { timeout: TIMEOUTS.tabWait }).catch(() => null);
+                await matchedButton.click().catch(() => {});
+                
+                const newTarget = await newTargetPromise;
+                if (newTarget) {
+                  page = await newTarget.page();
+                  await sleep(2500);
+                }
+                dialogHandled = true;
+              }
+            } catch (e) {}
+            if (dialogHandled) break;
+          }
+  
+          if (!dialogHandled) {
+            let gameClicked = false;
+            
+            // Wait for dashboard to settle
+            await sleep(1500);
+            
+            // Find and click the Pretty Gaming icon
+            for (const frame of page.frames()) {
+              try {
+                const pgIcon = await frame.$(SELECTORS.prettyGamingIcon);
+                if (pgIcon) {
+                  logger.log("Found Pretty Gaming icon. Clicking...");
+                  await pgIcon.click();
+                  gameClicked = true;
+                  break;
+                }
+              } catch(e) {}
+              if (gameClicked) break;
+            }
+            
+            if (gameClicked) {
+               logger.log("Waiting for game dialog to appear...");
+               await sleep(3000); 
+            } else {
+               logger.warn("Could not find Pretty Gaming icon in dashboard.");
+            }
+          }
+        }
+        
+        await sleep(2000);
+        let nextStateResult = await evaluateState(browser, urls);
+        currentState = nextStateResult.state;
+        if (nextStateResult.page && page !== nextStateResult.page) {
+          page = nextStateResult.page;
         }
       }
       
-      await sleep(2000);
-      let nextStateResult = await evaluateState(browser, urls);
-      currentState = nextStateResult.state;
-      if (nextStateResult.page && page !== nextStateResult.page) {
-        page = nextStateResult.page;
+      if (currentState === STATES.IN_GAME) {
+        logger.log("SUCCESS: Reached Pretty Gaming lobby!");
+        
+        await checkPGpage(page, logger);
+        
+        return { browser, page };
       }
-    }
-    
-    if (currentState === STATES.IN_GAME) {
-      logger.log("SUCCESS: Reached Pretty Gaming lobby!");
-      
-      await checkPGpage(page, logger);
-      
-      return { browser, page };
+    } catch (err) {
+      logger.error(`Error during launch/login attempt ${mainLoopRetries}: ${err.message}`);
+      if (page && !page.isClosed()) {
+        logger.log("Closing the current page/tab to clean up...");
+        await page.close().catch(() => {});
+      }
+      if (mainLoopRetries < 3) {
+        logger.log("Retrying launch sequence with a new clean tab...");
+        await sleep(3000);
+      } else {
+        throw err;
+      }
     }
   }
   throw new Error("Failed to reach Pretty Gaming lobby after multiple attempts.");
