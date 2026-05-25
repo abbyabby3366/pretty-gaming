@@ -1,6 +1,7 @@
 // ================= CONFIGURATION =================
 // Set to "ALL" to watch all tables, or a specific visual name like "Prettyonsexy01"
-const WATCHED_TABLE = "Prettyonsexy03";
+// const WATCHED_TABLE = "PrettyMG05";
+const WATCHED_TABLE = "PrettyXPG93";
 // const WATCHED_TABLE = "ALL";
 // =================================================
 

@@ -150,12 +150,20 @@
       roundCount = (old.round || baseStoreCount) + 1;
     }
 
+    const isNewRound = (gameId !== "N/A" && old.gameId !== undefined && old.gameId !== "N/A" && gameId !== old.gameId) ||
+                       (statusChanged && packet.status === "CountDown");
+
+    let result = packet.result || old.result || null;
+    if (isNewRound) {
+      result = packet.result || null;
+    }
+
     window.__tableStatesCache[packet.roomId] = {
       roomId: packet.roomId,
       gameId: gameId,
       status: packet.status,
       timeLeft: packet.timeLeft !== undefined ? packet.timeLeft : old.timeLeft,
-      result: packet.result || old.result || null,
+      result: result,
       statistics: packet.statistics || old.statistics || [],
       round: roundCount
     };

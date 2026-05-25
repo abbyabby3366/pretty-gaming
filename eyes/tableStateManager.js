@@ -166,6 +166,10 @@ class TableStateManager {
               this.lastResetNotificationTime.set(rateLimitKey, now);
             }
           }
+          
+          // Auto-heal: Clear the mismatched deduced bead road so it can re-sync cleanly
+          console.log(`\x1b[33m[STATE] ${ts.tableName}: Auto-clearing mismatched deduced bead road history to re-sync.\x1b[0m`);
+          ts.deducedBeadRoad = [];
         }
       }
 
@@ -189,7 +193,8 @@ class TableStateManager {
       // ── Process hand completion cleanly when server transitions to Result ──
       const isResultState = newState.startsWith("Result");
       const isAlreadyFinalized = ts.deducedBeadRoad && ts.deducedBeadRoad.some(item => item && item.round === newRound);
-      if (isResultState && newRound > ts.lastFinalizedRound && newRound > 0) {
+      const hasCards = (table.playerCards && table.playerCards.length > 0) || (table.bankerCards && table.bankerCards.length > 0);
+      if (isResultState && newRound > ts.lastFinalizedRound && newRound > 0 && hasCards) {
         if (isAlreadyFinalized) {
           const msg = `[WARNING] ${ts.tableName}: Double-deduction attempt guarded for completed round ${newRound}! Round already present in deduced bead road.`;
           const rateLimitKey = `${ts.tableName}:double_deduct:${newRound}`;
@@ -404,6 +409,12 @@ class TableStateManager {
 
   restore(data) {
     if (!data || typeof data !== "object") return;
+    const normalizeCard = (c) => {
+      if (!c || c === "null" || c === "Red") return c;
+      if (c.startsWith("10")) return "T" + c.slice(2);
+      return c;
+    };
+
     for (const [name, saved] of Object.entries(data)) {
       const ts = new TableState(name);
       ts.lastState = saved.lastState || null;
@@ -411,15 +422,26 @@ class TableStateManager {
       ts.deckComposition = saved.deckComposition || freshShoe();
       ts.handNumber = saved.handNumber || 0;
       ts.lastFinalizedRound = saved.lastFinalizedRound || saved.lastRound || 0;
-      ts.lastPlayerCards = saved.lastPlayerCards || [];
-      ts.lastBankerCards = saved.lastBankerCards || [];
+      ts.lastPlayerCards = (saved.lastPlayerCards || []).map(normalizeCard);
+      ts.lastBankerCards = (saved.lastBankerCards || []).map(normalizeCard);
       ts.lastEvResult = saved.lastEvResult || null;
       ts.bufferedCards = saved.bufferedCards || { player: [], banker: [] };
       ts.currentBetId = saved.currentBetId || null;
       ts.consecutiveZeroCardHands = saved.consecutiveZeroCardHands || 0;
       ts.lastErrorResetReason = saved.lastErrorResetReason || null;
       ts.lastErrorResetTime = saved.lastErrorResetTime || null;
-      ts.deducedBeadRoad = saved.deducedBeadRoad || [];
+      
+      ts.deducedBeadRoad = (saved.deducedBeadRoad || []).map(item => {
+        if (item && typeof item === 'object') {
+          return {
+            ...item,
+            playerCards: (item.playerCards || []).map(normalizeCard),
+            bankerCards: (item.bankerCards || []).map(normalizeCard)
+          };
+        }
+        return item;
+      });
+
       ts.restored = true;
       this.tables.set(name, ts);
     }

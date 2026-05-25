@@ -96,16 +96,24 @@ async function scrapePG(page, unused_extractorCode, acctConfig = {}) {
 
       if (entry.result && entry.result.rsBc) {
         const rs = entry.result.rsBc;
+        const normalizeCard = (c) => {
+          if (!c || c === "null" || c === "Red") return null;
+          if (c.startsWith("10")) return "T" + c.slice(2);
+          return c;
+        };
+
         [rs.player_1, rs.player_2, rs.player_3].forEach(c => {
-          if (c && c !== "null" && c !== "Red") {
-            playerCards.push(c);
-            allCards.push(c);
+          const norm = normalizeCard(c);
+          if (norm) {
+            playerCards.push(norm);
+            allCards.push(norm);
           }
         });
         [rs.banker_1, rs.banker_2, rs.banker_3].forEach(c => {
-          if (c && c !== "null" && c !== "Red") {
-            bankerCards.push(c);
-            allCards.push(c);
+          const norm = normalizeCard(c);
+          if (norm) {
+            bankerCards.push(norm);
+            allCards.push(norm);
           }
         });
       }
