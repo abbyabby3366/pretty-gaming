@@ -137,18 +137,8 @@
     const statusChanged = packet.status !== old.status;
 
     const gameId = packet.gameId || old.gameId || "N/A";
-    let roundCount = old.round || 0;
     const baseStoreCount = getRoundCount(packet.roomId, packet);
-
-    if (!roundCount || old.gameId === undefined || old.gameId === "N/A") {
-      if (packet.status === "Shuffle") {
-        roundCount = baseStoreCount;
-      } else {
-        roundCount = baseStoreCount + 1;
-      }
-    } else if (gameId !== "N/A" && gameId !== old.gameId) {
-      roundCount = (old.round || baseStoreCount) + 1;
-    }
+    const roundCount = (packet.status === "Shuffle") ? baseStoreCount : baseStoreCount + 1;
 
     const isNewRound = (gameId !== "N/A" && old.gameId !== undefined && old.gameId !== "N/A" && gameId !== old.gameId) ||
                        (statusChanged && packet.status === "CountDown");
