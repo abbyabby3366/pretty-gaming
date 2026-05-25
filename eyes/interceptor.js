@@ -90,10 +90,7 @@
             window.__activeRooms.add(t.roomId);
             if (!window.__tableStatesCache[t.roomId]) {
               const baseStoreCount = t.statistics ? t.statistics.length : 0;
-              let roundCount = t.boot || t.round || t.roundNo || t.roundNumber || 0;
-              if (!roundCount) {
-                roundCount = (t.status === "Shuffle") ? baseStoreCount : baseStoreCount + 1;
-              }
+              const roundCount = t.round || t.roundNo || t.roundNumber || baseStoreCount;
               window.__tableStatesCache[t.roomId] = {
                 roomId: t.roomId,
                 gameId: t.gameId || "N/A",
@@ -142,14 +139,7 @@
     const gameId = packet.gameId || old.gameId || "N/A";
     const baseStoreCount = getRoundCount(packet.roomId, packet);
 
-    let roundCount = old.round || 0;
-    if (!roundCount || packet.status === "CountDown" || packet.status === "Shuffle") {
-      if (packet.status === "Shuffle" || packet.status === "PayOut") {
-        roundCount = baseStoreCount;
-      } else {
-        roundCount = baseStoreCount + 1;
-      }
-    }
+    const roundCount = packet.round || packet.roundNo || packet.roundNumber || baseStoreCount;
 
     const isNewRound = (gameId !== "N/A" && old.gameId !== undefined && old.gameId !== "N/A" && gameId !== old.gameId) ||
                        (statusChanged && packet.status === "CountDown");

@@ -112,37 +112,10 @@ class TableStateManager {
       const newState = table.state;
       let newRound = table.round;
 
-      // Auto-correct any scraper/websocket lag:
-      // If we are in "Waiting for Bets" or "Dealing", the round number must be statistics.length + 1
-      if (newState === "Waiting for Bets" || newState === "Dealing") {
-        if (table.statistics && table.statistics.length > 0) {
-          const expectedRound = table.statistics.length + 1;
-          if (newRound < expectedRound) {
-            console.log(`\x1b[33m[STATE] ${name}: Auto-correcting lagged round ${newRound} -> ${expectedRound} using statistics history\x1b[0m`);
-            newRound = expectedRound;
-          }
-        }
-      }
-
       // If a new shoe has officially started (round 1), clear the deduced bead road
       if (newRound === 1 && ts.lastRound !== 1) {
         ts.deducedBeadRoad = [];
       }
-
-      // ── Convert any legacy string elements in deducedBeadRoad to object format ──
-      if (ts.deducedBeadRoad && ts.deducedBeadRoad.length > 0) {
-        ts.deducedBeadRoad = ts.deducedBeadRoad.map((item, idx) => {
-          if (item && typeof item === 'string') {
-            const totalDeduced = ts.deducedBeadRoad.length;
-            const isResult = newState.startsWith('Result');
-            const lastCompletedRound = isResult ? newRound : newRound - 1;
-            const rNum = lastCompletedRound - (totalDeduced - 1 - idx);
-            return { round: rNum, winner: item };
-          }
-          return item;
-        });
-      }
-
       // ── Verify deduced outcomes match server statistics history ──
       if (ts.deducedBeadRoad && ts.deducedBeadRoad.length > 0 && table.statistics && table.statistics.length > 0) {
         let mismatchFound = false;
@@ -179,9 +152,7 @@ class TableStateManager {
             }
           }
           
-          // Auto-heal: Clear the mismatched deduced bead road so it can re-sync cleanly
-          console.log(`\x1b[33m[STATE] ${ts.tableName}: Auto-clearing mismatched deduced bead road history to re-sync.\x1b[0m`);
-          ts.deducedBeadRoad = [];
+          // Do not auto-clear to allow dashboard visualization of the mismatch.
         }
       }
 
