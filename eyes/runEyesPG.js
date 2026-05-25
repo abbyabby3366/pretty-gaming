@@ -160,17 +160,21 @@ function sendSignals(events) {
     if (hasReset) continue;
 
     // 2. PLACE NEW BET FOR CURRENT ROUND
-    // Only place a bet if there is a valid EV edge right now
+    // Only place a bet if the table is currently in the betting phase ("Waiting for Bets")
+    if (ts.lastState !== "Waiting for Bets") {
+      continue;
+    }
+ 
     if (!ts.lastEvResult || !ts.lastEvResult.best) continue;
 
     const maxEv = Math.max(ts.lastEvResult.ev_player || 0, ts.lastEvResult.ev_banker || 0, ts.lastEvResult.ev_tie || 0);
     if (maxEv > 0.01) {
-      if (ts.lastWarnedEvRound !== event.round) {
+      if (ts.lastWarnedEvRound !== ts.lastRound) {
         const snapshotRemaining = event.deckRemaining !== undefined ? event.deckRemaining : ts.remaining;
-        const msg = `[WARNING] ${event.tableName} (Round ${event.round}): Abnormal EV detected (${(maxEv * 100).toFixed(3)}% > 1.0%). Deck size might be out of sync (Remaining: ${snapshotRemaining})`;
+        const msg = `[WARNING] ${event.tableName} (Round ${ts.lastRound}): Abnormal EV detected (${(maxEv * 100).toFixed(3)}% > 1.0%). Deck size might be out of sync (Remaining: ${snapshotRemaining})`;
         console.log(`\x1b[33m${msg}\x1b[0m`);
         sendWhatsAppNotification(msg).catch(() => {});
-        ts.lastWarnedEvRound = event.round;
+        ts.lastWarnedEvRound = ts.lastRound;
       }
     }
 
@@ -190,7 +194,7 @@ function sendSignals(events) {
         autoBet: true, 
         gameState: "WAITING_FOR_BETS" 
       },
-      ocr: { roundNumber: String(event.round) },
+      ocr: { roundNumber: String(ts.lastRound) },
       metrics: { deckRemaining: ts.remaining },
       mathematics: {
         deckComposition: ts.deckComposition,
@@ -202,18 +206,42 @@ function sendSignals(events) {
       }
     };
 
-    fetch("http://localhost:3456/api/telemetry/eyes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(betPayload)
-    })
-    .then(res => res.json())
-    .then(data => {
-      // console.log(`  \\x1b[35m[SIGNAL] Sent to Central: ${data.action} (BetId: ${data.betId || ts.currentBetId})\\x1b[0m`);
-    })
-    .catch(err => {
-      console.log(`  \x1b[31m[SIGNAL] Failed to send to Central: ${err.message}\x1b[0m`);
-    });
+    const delayMs = parseInt(process.env.MIN_BET_DELAY_MS || "0", 10);
+    if (delayMs > 0) {
+      setTimeout(() => {
+        const currentTs = stateManager.getTable(event.tableName);
+        if (!currentTs || currentTs.currentBetId !== betPayload.uuid) {
+          console.log(`  \x1b[33m[SIGNAL] Aborted dispatch to Central (BetId: ${betPayload.uuid} superseded or cleared)\x1b[0m`);
+          return;
+        }
+
+        fetch("http://localhost:3456/api/telemetry/eyes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(betPayload)
+        })
+        .then(res => res.json())
+        .then(data => {
+          // console.log(`  \\x1b[35m[SIGNAL] Sent to Central: ${data.action} (BetId: ${data.betId || ts.currentBetId})\\x1b[0m`);
+        })
+        .catch(err => {
+          console.log(`  \x1b[31m[SIGNAL] Failed to send to Central: ${err.message}\x1b[0m`);
+        });
+      }, delayMs);
+    } else {
+      fetch("http://localhost:3456/api/telemetry/eyes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(betPayload)
+      })
+      .then(res => res.json())
+      .then(data => {
+        // console.log(`  \\x1b[35m[SIGNAL] Sent to Central: ${data.action} (BetId: ${data.betId || ts.currentBetId})\\x1b[0m`);
+      })
+      .catch(err => {
+        console.log(`  \x1b[31m[SIGNAL] Failed to send to Central: ${err.message}\x1b[0m`);
+      });
+    }
   }
 }
 

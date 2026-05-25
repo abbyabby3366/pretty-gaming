@@ -44,13 +44,8 @@ async function scrapePG(page, unused_extractorCode, acctConfig = {}) {
       const bWins = stats.filter(c => c.startsWith('b')).length;
       const tWins = stats.filter(c => c.startsWith('t')).length;
 
-      // Compute active round number based on current packet status
-      let roundNumber = entry.round || stats.length;
-      if (!entry.round) {
-        if (entry.status === "CountDown" || entry.status === "showResult" || entry.status === "PayOut") {
-          roundNumber = stats.length + 1;
-        }
-      }
+      // Directly follow the round number given from interceptor
+      let roundNumber = entry.round || 0;
 
       // Determine standardized state
       let state = stateMapping[entry.status] || entry.status || "Waiting for Bets";

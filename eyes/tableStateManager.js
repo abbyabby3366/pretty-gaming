@@ -110,7 +110,19 @@ class TableStateManager {
       const ts = this.tables.get(name);
       const prevState = ts.lastState;
       const newState = table.state;
-      const newRound = table.round;
+      let newRound = table.round;
+
+      // Auto-correct any scraper/websocket lag:
+      // If we are in "Waiting for Bets" or "Dealing", the round number must be statistics.length + 1
+      if (newState === "Waiting for Bets" || newState === "Dealing") {
+        if (table.statistics && table.statistics.length > 0) {
+          const expectedRound = table.statistics.length + 1;
+          if (newRound < expectedRound) {
+            console.log(`\x1b[33m[STATE] ${name}: Auto-correcting lagged round ${newRound} -> ${expectedRound} using statistics history\x1b[0m`);
+            newRound = expectedRound;
+          }
+        }
+      }
 
       // If a new shoe has officially started (round 1), clear the deduced bead road
       if (newRound === 1 && ts.lastRound !== 1) {
@@ -181,10 +193,10 @@ class TableStateManager {
 
       if (newRound === 1 && ts.lastRound > 10) {
         forceReset = true;
-        resetReason = `Fresh round 1 starting (last round was ${ts.lastRound})`;
-      } else if (table.statistics && table.statistics.length === 0 && ts.lastRound > 0 && newState !== "Shuffling") {
+        resetReason = `Round number decreased from ${ts.lastRound} to 1`;
+      } else if (table.statistics && table.statistics.length === 0 && ts.lastRound > 1 && newState !== "Shuffling") {
         forceReset = true;
-        resetReason = "Server statistics array cleared to empty";
+        resetReason = "Shuffling detected";
       }
 
       // ── Reset shoe instantly on Shuffling state or Fallback Triggers ──
@@ -199,7 +211,7 @@ class TableStateManager {
           finalRound: ts.lastRound
         });
         ts.lastState = newState;
-        ts.lastRound = newRound;
+        ts.lastRound = 0; // Prevent second trigger when newRound transitions to 1 in the next tick
         continue;
       }
 
@@ -348,6 +360,16 @@ class TableStateManager {
   }
 
   _resetShoe(ts, reason) {
+    // Append the last round if not already mentioned in the reason
+    const roundInfo = (ts.lastRound > 0 && !reason.includes("decreased from") && !reason.includes("reset from"))
+      ? `, last round was ${ts.lastRound}`
+      : '';
+    const msg = `[SHOE] ${ts.tableName}: Reset to fresh shoe (Reason: ${reason}${roundInfo})`;
+    const rateLimitKey = `${ts.tableName}:${reason}`;
+    const now = Date.now();
+    const lastSent = this.lastResetNotificationTime ? (this.lastResetNotificationTime.get(rateLimitKey) || 0) : 0;
+    const isSpam = (now - lastSent) < 15 * 60 * 1000;
+
     ts.deckComposition = freshShoe();
     ts.handNumber = 0;
     ts.lastFinalizedRound = 0;
@@ -358,10 +380,19 @@ class TableStateManager {
     ts.lastPlayerCards = [];
     ts.lastBankerCards = [];
     ts.lastEvResult = null;
-    // Only clear deduced road on manual resets or fresh shoe commands
-    if (reason && (reason.includes("Manual reset") || reason.includes("fresh shoe") || reason.includes("starting fresh"))) {
+    
+    // Clear deduced road on manual resets, fresh shoe commands, shuffles, or server stats resets
+    if (reason && (
+      reason.includes("Manual reset") ||
+      reason.includes("fresh shoe") ||
+      reason.includes("starting fresh") ||
+      reason.includes("Server statistics") ||
+      reason.includes("Shuffling") ||
+      reason.includes("Fresh round")
+    )) {
       ts.deducedBeadRoad = [];
     }
+    
     if (reason && reason.startsWith('Invalid state')) {
       ts.lastErrorResetReason = reason;
       ts.lastErrorResetTime = Date.now();
@@ -370,16 +401,8 @@ class TableStateManager {
       ts.lastErrorResetTime = null;
     }
 
-    const msg = `[SHOE] ${ts.tableName}: Reset to fresh shoe (${reason})`;
-    const rateLimitKey = `${ts.tableName}:${reason}`;
-    const now = Date.now();
-    const lastSent = this.lastResetNotificationTime ? (this.lastResetNotificationTime.get(rateLimitKey) || 0) : 0;
-    const isSpam = (now - lastSent) < 15 * 60 * 1000;
-
-    if (!reason.includes("Shuffling detected") && !reason.includes("Shuffling state detected")) {
-      if (!isSpam) {
-        console.log(`\x1b[33m${msg}\x1b[0m`);
-      }
+    if (!isSpam) {
+      console.log(`\x1b[33m${msg}\x1b[0m`);
     }
     
     if (reason.startsWith('Invalid state')) {
