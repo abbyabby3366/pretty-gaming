@@ -69,11 +69,82 @@ function sendHeartbeat() {
 async function updateBalance() {
   if (isBrowserReady && browserPage) {
     try {
-      const evaluatePromise = browserPage.evaluate(() => {
-        const el = document.querySelector("#balance-zone .block-newline");
-        return el ? el.textContent.trim() : null;
+      const evaluatePromise = browserPage.evaluate(async () => {
+        const API_BASE = "https://member-api.aghippo168.com";
+
+        // Try getting balance from Pinia first (in-memory)
+        try {
+          let pinia = window.$nuxt?.$pinia || window.$pinia;
+          if (!pinia) {
+            const el = document.querySelector('#__nuxt') || document.querySelector('#app') || document.body;
+            pinia = el?.__vue_app__?.$pinia || el?.__vue_app__?.config?.globalProperties?.$pinia;
+          }
+          if (pinia && pinia.state && pinia.state.value && pinia.state.value.global) {
+            const piniaBal = pinia.state.value.global.profile?.balance;
+            if (piniaBal !== undefined && piniaBal !== null) {
+              return String(piniaBal);
+            }
+          }
+        } catch (e) {}
+
+        // Fallback: direct REST call
+        try {
+          function getAuthToken() {
+            for (let i = 0; i < localStorage.length; i++) {
+              const key = localStorage.key(i);
+              const val = localStorage.getItem(key);
+              if (key.toLowerCase().includes('token') && val) {
+                return val.replace(/^Bearer\s+/i, '');
+              }
+              if (val && val.startsWith('eyJ') && val.split('.').length === 3) {
+                return val;
+              }
+            }
+            for (let i = 0; i < sessionStorage.length; i++) {
+              const key = sessionStorage.key(i);
+              const val = sessionStorage.getItem(key);
+              if (key.toLowerCase().includes('token') && val) {
+                return val.replace(/^Bearer\s+/i, '');
+              }
+              if (val && val.startsWith('eyJ') && val.split('.').length === 3) {
+                return val;
+              }
+            }
+            const cookieMatch = document.cookie.match(/token=([^;]+)/i);
+            if (cookieMatch) return decodeURIComponent(cookieMatch[1]);
+            return null;
+          }
+
+          const token = getAuthToken();
+          if (token) {
+            const headers = {
+              "Content-Type": "application/json",
+              "authorization": token
+            };
+
+            const profile = await fetch(`${API_BASE}/apiRoute/member/profile`, {
+              method: "POST",
+              headers: headers,
+              body: JSON.stringify({ lang: "en" })
+            }).then(r => r.json());
+
+            if (profile && profile._id) {
+              const balanceInfo = await fetch(`${API_BASE}/apiRoute/member/viewBalance/${profile._id}`, {
+                method: "GET",
+                headers: headers
+              }).then(r => r.json());
+
+              if (balanceInfo && typeof balanceInfo.balance !== 'undefined') {
+                return String(balanceInfo.balance);
+              }
+            }
+          }
+        } catch (e) {}
+
+        return null;
       });
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000));
+
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 8000));
       const balance = await Promise.race([evaluatePromise, timeoutPromise]);
       if (balance) {
         latestBalance = balance;
@@ -303,6 +374,18 @@ async function initBrowser() {
       browserInstance = browser;
       browserPage = page;
       isBrowserReady = true;
+
+      // Inject the client-side state interceptor to intercept WebSocket messages for in-memory timers
+      try {
+        const interceptorPath = path.resolve(__dirname, "..", "eyes", "interceptor.js");
+        const fs = require('fs');
+        const interceptorCode = fs.readFileSync(interceptorPath, "utf8");
+        await page.evaluate(interceptorCode).catch(() => {});
+        await page.evaluateOnNewDocument(interceptorCode).catch(() => {});
+        console.log(`[Bet Module] Injected WebSocket state interceptors successfully.`);
+      } catch (e) {
+        console.error(`[Bet Module] Failed to load/inject WebSocket interceptors:`, e.message);
+      }
 
       console.log(`\x1b[32m[Bet Module] Winbox Launch Successful! Module is ready to accept bets.\x1b[0m`);
       

@@ -1,336 +1,258 @@
 /**
- * Injects the betting script into the live Chromium page to place the bet and verify.
+ * Injects the pure API-based betting script into the live Chromium page to place the bet and verify.
+ * Zero DOM selectors are used for game state, timer, or balance.
  * @param {import('puppeteer').Page} page 
  * @param {Object} betConfig 
- * @returns {Promise<{success: boolean, reason?: string}>} 
+ * @returns {Promise<{success: boolean, reason?: string, betAmount?: string, balance?: string, timer?: number}>} 
  */
 async function executeBetInBrowser(page, betConfig) {
   try {
     const evaluatePromise = page.evaluate(async (config) => {
-      const chips = document.querySelectorAll(config.chipSelector);
-      if (chips.length === 0) {
-        return { success: false, reason: "No chips found on screen" };
-      }
+      const API_BASE = "https://member-api.aghippo168.com";
 
-      // 1.5 DYNAMIC CHIP SELECTION
-      if (config.targetAmount && config.targetAmount !== "ALL_IN") {
-        let parsedChips = [];
-        chips.forEach((c, index) => {
-          let chipValue = 0;
-          const img = c.querySelector('img.chipVal') || c.querySelector('img');
-          
-          if (img && img.src) {
-            const match = img.src.match(/chip\/([a-zA-Z0-9.]+)\.svg/);
-            if (match) {
-              let valStr = match[1].toUpperCase();
-              let val = parseFloat(valStr);
-              if (valStr.endsWith('K')) val *= 1000;
-              if (!isNaN(val) && val > 0) chipValue = val;
-            }
+      // --- 1. EXTRACT AUTHORIZATION SESSION TOKEN ---
+      function getAuthToken() {
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          const val = localStorage.getItem(key);
+          if (key.toLowerCase().includes('token') && val) {
+            return val.replace(/^Bearer\s+/i, '');
           }
-          
-          if (chipValue === 0) {
-            let text = c.textContent.trim().replace(/,/g, '');
-            if (text.toUpperCase().endsWith('K')) {
-              let num = parseFloat(text);
-              if (!isNaN(num)) chipValue = num * 1000;
-            } else {
-              let num = parseFloat(text);
-              if (!isNaN(num)) chipValue = num;
-            }
-          }
-          
-          if (chipValue > 0) {
-            parsedChips.push({ element: c, val: chipValue, index });
-          }
-        });
-
-        let amount = parseInt(config.targetAmount, 10);
-
-        // Optimize chip strategy: minimize total operations (selections + clicks)
-        // Try greedy largest-first, but also evaluate fewest-operations approach
-        parsedChips.sort((a, b) => b.val - a.val);
-        
-        let dynamicClicks = [];
-        let remaining = amount;
-        for (let chip of parsedChips) {
-          if (remaining >= chip.val) {
-            let times = Math.floor(remaining / chip.val);
-            dynamicClicks.push({ chipIndex: chip.index, times });
-            remaining -= times * chip.val;
+          if (val && val.startsWith('eyJ') && val.split('.').length === 3) {
+            return val;
           }
         }
-        
-        if (dynamicClicks.length > 0) {
-          config.clicksSequence = dynamicClicks;
-        }
-      }
-      // 1. VERIFY WE HAVE A CLICKS SEQUENCE
-      if (!config.clicksSequence || config.clicksSequence.length === 0) {
-        return { success: false, reason: "No valid chip clicks calculated for bet amount (dynamic parsing failed)" };
-      }
-
-      // Helper: check if "no more bets" is active on a table
-      function isNoMoreBets(table) {
-        const el = table.querySelector("#noMoreBet");
-        if (!el) return false;
-        if (el.classList.contains("hidden")) return false;
-        if (el.style.display === "none") return false;
-        // Also check computed visibility/opacity
-        const style = window.getComputedStyle(el);
-        if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
-        return true;
-      }
-
-      // Helper: read countdown timer from a table container
-      function getTimer(table) {
-        try {
-          const timerDiv = table.querySelector('div.absolute.top-\\[20\\%\\].left-\\[0\\%\\]');
-          if (timerDiv) {
-            const txt = (timerDiv.innerText || timerDiv.textContent || '').trim();
-            if (/^\d+$/.test(txt)) return parseInt(txt, 10);
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const key = sessionStorage.key(i);
+          const val = sessionStorage.getItem(key);
+          if (key.toLowerCase().includes('token') && val) {
+            return val.replace(/^Bearer\s+/i, '');
           }
-        } catch(e) {}
+          if (val && val.startsWith('eyJ') && val.split('.').length === 3) {
+            return val;
+          }
+        }
+        const cookieMatch = document.cookie.match(/token=([^;]+)/i);
+        if (cookieMatch) return decodeURIComponent(cookieMatch[1]);
         return null;
       }
 
-      // 2. FIND TABLE
-      const allTables = document.querySelectorAll(".bg-table");
-      let targetTable = null;
-      for (let table of allTables) {
-        const titleEl = table.querySelector('img[src*="fav"]')?.nextElementSibling;
-        if (titleEl && titleEl.textContent.trim() === config.tableName) {
-          targetTable = table;
-          break;
-        }
-      }
-      if (!targetTable) return { success: false, reason: "Table not found" };
-
-      // SCROLL TABLE INTO VIEW
-      targetTable.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      
-      // Wait until the scroll animation finishes by monitoring its position
-      let lastTop = targetTable.getBoundingClientRect().top;
-      let settledCount = 0;
-      for (let i = 0; i < 20; i++) { // max 2 seconds timeout
-        await new Promise(r => setTimeout(r, 100));
-        let currTop = targetTable.getBoundingClientRect().top;
-        if (Math.abs(currTop - lastTop) < 1) {
-          settledCount++;
-          if (settledCount >= 2) break; // Position stable for 200ms
-        } else {
-          settledCount = 0;
-        }
-        lastTop = currTop;
+      const token = getAuthToken();
+      if (!token) {
+        return { success: false, reason: "Authorization token not found in browser storage" };
       }
 
-      // Brief wait after scroll settles for DOM to update
-      await new Promise(resolve => setTimeout(resolve, 200));
-
-      // 3. CHECK NO MORE BETS
-      if (isNoMoreBets(targetTable)) {
-        return { success: false, reason: "No more bets accepted", timer: getTimer(targetTable) };
-      }
-
-      // 4. FIND BET AREA (with retry - DOM may still be updating after scroll)
-      const betTypeMap = {
-        "PlayerBet": "Player",
-        "BankerBet": "Banker",
-        "TieBet": "Tie",
-        "Player": "Player",
-        "Banker": "Banker",
-        "Tie": "Tie",
+      const headers = {
+        "Content-Type": "application/json",
+        "authorization": token
       };
-      const domLabel = betTypeMap[config.betType] || config.betType;
 
-      function findBetArea() {
-        const betAreas = targetTable.querySelectorAll(".clickActive");
-        for (let area of betAreas) {
-          const areaText = (area.innerText || area.textContent || "").replace(/\s+/g, " ").trim();
-          // Exact match OR starts with label followed by a number (odds like 1:1)
-          // This prevents "Player" from accidentally matching "Player Pair 11:1"
-          const regex = new RegExp(`^${domLabel}(\\s*\\d.*)?$`, 'i');
-          if (regex.test(areaText)) {
-            return area;
-          }
-        }
-        return null;
-      }
-
-      let targetBetArea = null;
-      // Retry up to 3 times with 300ms gaps if bet area isn't found immediately
-      for (let attempt = 0; attempt < 3; attempt++) {
-        targetBetArea = findBetArea();
-        if (targetBetArea) break;
-        if (attempt < 2) {
-          await new Promise(r => setTimeout(r, 300));
-        }
-      }
-      if (!targetBetArea) return { success: false, reason: `Bet area not found (looking for "${domLabel}" from betType "${config.betType}")`, timer: getTimer(targetTable) };
-
-      function getBalance() {
+      // --- 2. GET PINIA STORE HELPER ---
+      function getPiniaStore() {
         try {
-          const el = document.querySelector("#balance-zone .block-newline");
-          if (el) {
-            let clean = el.textContent.trim().replace(/[^0-9.]/g, '');
-            let val = parseFloat(clean);
-            if (!isNaN(val)) return val;
+          let pinia = window.$nuxt?.$pinia || window.$pinia;
+          if (!pinia) {
+            const el = document.querySelector('#__nuxt') || document.querySelector('#app') || document.body;
+            pinia = el?.__vue_app__?.$pinia || el?.__vue_app__?.config?.globalProperties?.$pinia;
           }
-        } catch(e) {}
+          return pinia;
+        } catch (e) {}
         return null;
       }
 
-      let balanceBefore = getBalance();
+      // --- 3. FETCH PROFILE AND BALANCE VIA REST API ---
+      async function queryBalanceViaAPI() {
+        try {
+          // A. Fetch profile to get _id
+          const profile = await fetch(`${API_BASE}/apiRoute/member/profile`, {
+            method: "POST",
+            headers: headers,
+            body: JSON.stringify({ lang: "en" })
+          }).then(r => r.json());
 
-      // 4.5 PRE-FLIGHT BALANCE CHECK
-      if (balanceBefore != null && config.targetAmount && config.targetAmount !== "ALL_IN") {
-        let requiredAmount = parseInt(config.targetAmount, 10);
-        if (!isNaN(requiredAmount) && balanceBefore < requiredAmount) {
-          return { success: false, reason: `Insufficient balance (have ${balanceBefore}, need ${requiredAmount})`, balance: String(balanceBefore), timer: getTimer(targetTable) };
-        }
+          if (!profile || !profile._id) {
+            return null;
+          }
+
+          // B. Fetch balance using profile._id
+          const balanceInfo = await fetch(`${API_BASE}/apiRoute/member/viewBalance/${profile._id}`, {
+            method: "GET",
+            headers: headers
+          }).then(r => r.json());
+
+          if (balanceInfo && typeof balanceInfo.balance !== 'undefined') {
+            return parseFloat(balanceInfo.balance);
+          }
+        } catch (e) {}
+        return null;
       }
 
-      // 5. EXECUTE BETS
-      const areaClickDelay = config.betPlacementDelayMs || 150;
-
-      // Helper: check if a chip element is the currently selected one
-      function isChipActive(el) {
-        if (!el) return false;
-        // Check common class names the platform may use
-        if (el.classList.contains("active") || el.classList.contains("selected") || el.classList.contains("current")) return true;
-        // Also check for visual indicators like a highlight border or scale transform
-        const style = window.getComputedStyle(el);
-        if (style.transform && style.transform !== 'none' && style.transform.includes('scale')) return true;
-        return false;
-      }
-
-      for (let clickCmd of config.clicksSequence) {
-        // Re-query chips fresh each iteration to avoid stale DOM references
-        const freshChips = document.querySelectorAll(config.chipSelector);
-        const chipEl = freshChips[clickCmd.chipIndex];
-        if (!chipEl) {
-          return { success: false, reason: `Chip index ${clickCmd.chipIndex} out of bounds (found ${freshChips.length} chips)` };
-        }
-        
-        // Bail early if no more bets appeared mid-execution
-        if (isNoMoreBets(targetTable)) {
-          break;
-        }
-
-        // ALWAYS click the chip to ensure it's selected — the "skip if active"
-        // optimization was causing wrong-chip bets when the class state was stale
-        chipEl.click();
-
-        // Wait and VERIFY the chip is now active before proceeding
-        let chipConfirmed = false;
-        for (let poll = 0; poll < 10; poll++) {
-          await new Promise(resolve => setTimeout(resolve, 50));
-          // Re-query to get the freshest state
-          const latestChips = document.querySelectorAll(config.chipSelector);
-          if (latestChips[clickCmd.chipIndex] && isChipActive(latestChips[clickCmd.chipIndex])) {
-            chipConfirmed = true;
-            break;
-          }
-        }
-        // If we couldn't confirm, add a longer safety delay
-        if (!chipConfirmed) {
-          await new Promise(resolve => setTimeout(resolve, 200));
-        }
-
-        // Re-query bet area fresh — placing a chip can cause the platform to
-        // re-render the bet area DOM, detaching the original reference.
-        // Clicking a detached node is silently ignored by the browser.
-        const currentBetArea = findBetArea();
-        if (!currentBetArea) {
-          return { success: false, reason: `Bet area lost after chip selection (DOM re-rendered)`, timer: getTimer(targetTable) };
-        }
-
-        // Click target area 'times' times
-        for (let t = 0; t < clickCmd.times; t++) {
-          // Bail early if no more bets appeared between clicks
-          if (isNoMoreBets(targetTable)) {
-            break;
-          }
-          currentBetArea.click();
-          if (t < clickCmd.times - 1) {
-            // Delay between repeated clicks of same chip (not after the last one)
-            await new Promise(resolve => setTimeout(resolve, areaClickDelay));
-          }
-        }
-
-        // Settle between chip commands to let the DOM update after placement
-        await new Promise(resolve => setTimeout(resolve, config.chipSettleDelayMs || 500));
-      }
-
-      // Small settle after all clicks before verification
-      await new Promise(resolve => setTimeout(resolve, 200));
-
-      // 6. VERIFY
-      let betConfirmed = false;
-      let betAmount = null;
-
-      // Re-query bet area one final time for verification (avoid stale reference)
-      const verifyBetArea = findBetArea();
-
-      for (let i = 0; i < 25; i++) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        const chip = verifyBetArea ? verifyBetArea.querySelector(".bettingChip.placed") : null;
-        if (chip) {
-          betConfirmed = true;
-          // Wait for animations/rapid DOM updates to settle
-          await new Promise(resolve => setTimeout(resolve, 200));
-          
-          let sum = 0;
-          const placedChips = verifyBetArea.querySelectorAll('.bettingChip.placed');
-          
-          for (let c of placedChips) {
-            let chipValue = 0;
-            const img = c.querySelector('img.chipVal') || c.querySelector('img');
-            
-            if (img && img.src) {
-              const match = img.src.match(/chip\/([a-zA-Z0-9.]+)\.svg/);
-              if (match) {
-                let valStr = match[1].toUpperCase();
-                let val = parseFloat(valStr);
-                if (valStr.endsWith('K')) val *= 1000;
-                
-                if (!isNaN(val) && val > 0) chipValue = val;
-              }
-            }
-            
-            if (chipValue === 0) {
-              let text = c.textContent.trim().replace(/,/g, '');
-              if (text.toUpperCase().endsWith('K')) {
-                let num = parseFloat(text);
-                if (!isNaN(num)) chipValue = num * 1000;
-              } else {
-                let num = parseFloat(text);
-                if (!isNaN(num)) chipValue = num;
-              }
-            }
-            
-            sum += chipValue;
-          }
-          
-          betAmount = sum > 0 ? sum.toString() : "";
-          break;
-        }
-      }
-
-      // 7. GET BALANCE
-      let currentBalance = null;
+      // --- 4. RESOLVE TABLE SESSION DETAILS VIA API ---
+      let tableData;
       try {
-        const balanceZone = document.querySelector("#balance-zone .block-newline");
-        if (balanceZone) {
-          currentBalance = balanceZone.textContent.trim();
-        }
-      } catch (e) {}
-
-      if (!betConfirmed) {
-        return { success: false, reason: "Betting chip not placed visually", balance: currentBalance, timer: getTimer(targetTable) };
+        tableData = await fetch(`${API_BASE}/apiRoute/table/getAllBac`, { headers }).then(r => r.json());
+      } catch (err) {
+        return { success: false, reason: `Failed to fetch tables API: ${err.message}` };
       }
 
-      return { success: true, betAmount: betAmount, balance: currentBalance, timer: getTimer(targetTable) };
+      if (!tableData || tableData.code !== 0 || !Array.isArray(tableData.data)) {
+        return { success: false, reason: `Lobby API error: ${tableData?.msg || "Invalid response structure"}` };
+      }
+
+      const tableObj = tableData.data.find(t => t.name === config.tableName || t.tableNumber === config.tableName);
+      if (!tableObj) {
+        return { success: false, reason: `Table "${config.tableName}" not found in lobby list` };
+      }
+
+      const canonicalRoomId = tableObj.roomId;
+
+      // --- 5. RESOLVE WEBSOCKET SOCKET DATA & TIMER ACROSS FRAMES & PINIA ---
+      const pinia = getPiniaStore();
+
+      function getSocketDataAcrossFrames(roomId) {
+        const windowsToTry = [window];
+        try {
+          if (window.parent && window.parent !== window) windowsToTry.push(window.parent);
+          if (window.top && window.top !== window) windowsToTry.push(window.top);
+        } catch (e) { }
+
+        try {
+          const iframes = document.querySelectorAll('iframe');
+          for (const iframe of iframes) {
+            try {
+              if (iframe.contentWindow) windowsToTry.push(iframe.contentWindow);
+            } catch (e) { }
+          }
+        } catch (e) { }
+
+        for (const w of windowsToTry) {
+          try {
+            if (w.__tableStatesCache && w.__tableStatesCache[roomId]) {
+              return w.__tableStatesCache[roomId];
+            }
+          } catch (e) { }
+        }
+        return null;
+      }
+
+      let socketData = getSocketDataAcrossFrames(canonicalRoomId);
+
+      // Pinia fallback for socket retrieval
+      if (!socketData && pinia && pinia.state && pinia.state.value) {
+        for (const storeKey of Object.keys(pinia.state.value)) {
+          const storeState = pinia.state.value[storeKey];
+          if (storeState) {
+            for (const prop of Object.keys(storeState)) {
+              if (prop.toLowerCase().includes('socket') && typeof storeState[prop] === 'object' && storeState[prop] !== null) {
+                if (storeState[prop][canonicalRoomId]) {
+                  socketData = storeState[prop][canonicalRoomId];
+                  break;
+                }
+              }
+            }
+          }
+          if (socketData) break;
+        }
+      }
+
+      const initialTimer = socketData && socketData.timeLeft !== undefined ? socketData.timeLeft : null;
+
+      // --- 6. FORMAT POSITION & GAME DATA ---
+      const betTypeMap = {
+        "PlayerBet": "player",
+        "BankerBet": "banker",
+        "TieBet": "tie",
+        "Player": "player",
+        "Banker": "banker",
+        "Tie": "tie",
+        "playerpair": "playerPair",
+        "bankerpair": "bankerPair"
+      };
+      const formattedPosition = betTypeMap[config.betType] || betTypeMap[config.betType.toLowerCase()] || config.betType.toLowerCase();
+
+      let gameId = (socketData && socketData.gameId) || tableObj.gameId;
+
+      // If gameId wasn't in wsCache or lobby response, try Pinia baccarat store
+      if (!gameId && pinia && pinia.state && pinia.state.value) {
+        for (const storeKey of Object.keys(pinia.state.value)) {
+          if (storeKey.toLowerCase().includes('baccarat')) {
+            const storeState = pinia.state.value[storeKey];
+            if (storeState) {
+              const sockets = storeState.bacSocket || storeState.sockets;
+              if (sockets && sockets[canonicalRoomId]) {
+                gameId = sockets[canonicalRoomId].gameId;
+              }
+            }
+          }
+        }
+      }
+
+      if (!gameId) {
+        return { success: false, reason: "Game ID not resolved", timer: initialTimer };
+      }
+
+      // --- 7. PRE-FLIGHT BALANCE CHECK (PURE API/PINIA) ---
+      let balanceBefore = null;
+      // First try in-memory Pinia cache (no network query)
+      if (pinia && pinia.state && pinia.state.value && pinia.state.value.global) {
+        const piniaBal = pinia.state.value.global.profile?.balance;
+        if (piniaBal !== undefined && piniaBal !== null) balanceBefore = parseFloat(piniaBal);
+      }
+      // Fallback: direct API call
+      if (balanceBefore === null) {
+        balanceBefore = await queryBalanceViaAPI();
+      }
+
+      let targetAmountVal = parseInt(config.targetAmount, 10);
+      if (balanceBefore !== null && !isNaN(targetAmountVal) && config.targetAmount !== "ALL_IN") {
+        if (balanceBefore < targetAmountVal) {
+          return { success: false, reason: `Insufficient balance (have ${balanceBefore}, need ${targetAmountVal})`, balance: String(balanceBefore), timer: initialTimer };
+        }
+      }
+
+      // --- 8. SEND BET TRANSACTION payload ---
+      const limitId = tableObj.limitObj?.limitId || 3016;
+      const payload = {
+        betLimit: limitId,
+        gameId: gameId,
+        type: "Baccarat",
+        txts: [
+          {
+            position: formattedPosition,
+            betValue: targetAmountVal
+          }
+        ]
+      };
+
+      let response;
+      try {
+        response = await fetch(`${API_BASE}/apiRoute/transaction/userPlaceBet`, {
+          method: "POST",
+          headers: headers,
+          body: JSON.stringify(payload)
+        }).then(r => r.json());
+      } catch (err) {
+        return { success: false, reason: `Bet transaction network error: ${err.message}`, timer: initialTimer };
+      }
+
+      const success = response && response.code === 0;
+      const reason = success ? undefined : (response?.msg || `Lobby error code: ${response?.code}`);
+
+      // --- 9. QUERY POST-BET BALANCE VIA REST API & SYNC NUXT UI STATE ---
+      let balanceAfter = await queryBalanceViaAPI();
+      
+      if (balanceAfter !== null && pinia && pinia.state && pinia.state.value && pinia.state.value.global) {
+        pinia.state.value.global.profile.balance = balanceAfter;
+      }
+
+      return {
+        success: success,
+        reason: reason,
+        betAmount: success ? String(targetAmountVal) : undefined,
+        balance: balanceAfter !== null ? String(balanceAfter) : String(balanceBefore || ""),
+        timer: initialTimer
+      };
+
     }, betConfig);
 
     const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("page.evaluate timeout")), 25000));
