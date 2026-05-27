@@ -505,41 +505,48 @@ function startDashboard(stateManager) {
     for (const b of bets) {
       const modId = b.targetModuleId || b.targetModule || "UNKNOWN";
       const modLabel = b.targetModule || modId;
-      if (!statsMap[modId]) statsMap[modId] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, displayLabel: modLabel, betCount: 0 };
+      if (!statsMap[modLabel]) statsMap[modLabel] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, displayLabel: modLabel, betCount: 0 };
 
       let amt = parseFloat(b.actualBetAmount);
       if (isNaN(amt)) continue;
 
-      statsMap[modId].betCount += 1;
+      statsMap[modLabel].betCount += 1;
       totalStats.betCount += 1;
 
       const profit = b.profit || 0;
       const ev = b.ev || 0;
 
-      statsMap[modId].pnl += profit;
+      statsMap[modLabel].pnl += profit;
       totalStats.pnl += profit;
 
-      statsMap[modId].turnover += amt;
+      statsMap[modLabel].turnover += amt;
       totalStats.turnover += amt;
 
       if (b.roundOutcome !== "T") {
-        statsMap[modId].effTurnover += amt;
+        statsMap[modLabel].effTurnover += amt;
         totalStats.effTurnover += amt;
 
         const evAmt = ev * amt;
-        statsMap[modId].expValue += evAmt;
+        statsMap[modLabel].expValue += evAmt;
         totalStats.expValue += evAmt;
       }
     }
 
     for (const m of activeModules.values()) {
-      const mid = m.moduleId;
-      if (!statsMap[mid]) statsMap[mid] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, displayLabel: m.label, betCount: 0 };
+      let label = m.label;
+      if (m.accounts && m.accounts.length > 0 && m.accounts[0].label) {
+        label = m.accounts[0].label;
+      }
+      if (!statsMap[label]) {
+        statsMap[label] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, displayLabel: label, betCount: 0 };
+      } else {
+        statsMap[label].displayLabel = label;
+      }
       if (m.accounts && m.accounts[0] && m.accounts[0].balance != null) {
         const cleanBalance = String(m.accounts[0].balance).replace(/[^0-9.-]/g, '');
         const bval = parseFloat(cleanBalance);
         if (!isNaN(bval)) {
-          statsMap[mid].bal = bval;
+          statsMap[label].bal = bval;
           totalStats.bal += bval;
         }
       }
