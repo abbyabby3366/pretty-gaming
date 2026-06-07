@@ -660,7 +660,8 @@ function startDashboard(stateManager) {
     }
 
     const formatStats = (st) => {
-      const effRebate = st.effTurnover * 0.012;
+      const rebateRate = betConfig.rebateRate !== undefined ? parseFloat(betConfig.rebateRate) : 0.012;
+      const effRebate = st.effTurnover * rebateRate;
       const avgEv = st.effTurnover > 0 ? (st.expValue / st.effTurnover) : 0;
       return {
         pnl: st.pnl,
