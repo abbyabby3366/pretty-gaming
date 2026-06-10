@@ -41,23 +41,36 @@ const betLog = [];
 const centralBetQueue = [];
 const MAX_BET_LOG = 1000;
 
-function getRoundCardsFromStateJson(tableName, round) {
+async function getRoundCardsFromStateJson(tableName, round) {
   const filePath = path.join(__dirname, "..", "eyes", "json", "tables_state.json");
-  try {
-    if (fs.existsSync(filePath)) {
-      const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
-      if (data && Array.isArray(data.tables)) {
-        const table = data.tables.find(t => t.tableName === tableName);
-        if (table && Array.isArray(table.deducedBeadRoad)) {
-          const match = table.deducedBeadRoad.find(r => r && r.round === round);
-          if (match) {
-            return match;
+  let retries = 5;
+  while (retries > 0) {
+    try {
+      if (fs.existsSync(filePath)) {
+        const content = fs.readFileSync(filePath, "utf8");
+        if (!content || content.trim() === "") {
+          throw new Error("Empty file content");
+        }
+        const data = JSON.parse(content);
+        if (data && Array.isArray(data.tables)) {
+          const table = data.tables.find(t => t.tableName === tableName);
+          if (table && Array.isArray(table.deducedBeadRoad)) {
+            const match = table.deducedBeadRoad.find(r => r && r.round === round);
+            if (match) {
+              return match;
+            }
           }
         }
       }
+      return null;
+    } catch (e) {
+      retries--;
+      if (retries === 0) {
+        console.error(`[P2P Reconciliation] Error reading tables_state.json:`, e.message);
+        return null;
+      }
+      await new Promise(resolve => setTimeout(resolve, 50));
     }
-  } catch (e) {
-    console.error(`[P2P Reconciliation] Error reading tables_state.json:`, e.message);
   }
   return null;
 }
@@ -783,7 +796,7 @@ function startDashboard(stateManager) {
         const round = parseInt(roundStr, 10);
         
         // 1. Check local state json
-        const localMatch = getRoundCardsFromStateJson(tableName, round);
+        const localMatch = await getRoundCardsFromStateJson(tableName, round);
         if (localMatch) {
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok: true, cards: localMatch }));
@@ -832,7 +845,7 @@ function startDashboard(stateManager) {
           return;
         }
         const round = parseInt(roundStr, 10);
-        const localMatch = getRoundCardsFromStateJson(tableName, round);
+        const localMatch = await getRoundCardsFromStateJson(tableName, round);
         if (localMatch) {
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok: true, cards: localMatch }));

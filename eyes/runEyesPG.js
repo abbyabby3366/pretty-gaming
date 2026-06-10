@@ -398,26 +398,49 @@ function writeStateJson(tables, timestamp, events, allScrapedTables = [], ignore
     ...(e.reason ? { reason: e.reason } : {}),
   }));
 
-  fs.writeFileSync(
-    path.join(__dirname, "json", "tables_state.json"),
-    JSON.stringify(
-      {
-        timestamp,
-        totalTables: stateSnapshot.length,
-        config: {
-          minEvThreshold: dynamicConfig.minEvThreshold !== undefined ? parseFloat(dynamicConfig.minEvThreshold) : 0.0003,
-          rebateRate: dynamicConfig.rebateRate !== undefined ? parseFloat(dynamicConfig.rebateRate) : 0.012,
-        },
-        allScrapedTables,
-        ignoredTables,
-        eventsThisTick: eventsSummary,
-        eventLog: eventLog,
-        tables: stateSnapshot,
+  const filePath = path.join(__dirname, "json", "tables_state.json");
+  const tempPath = filePath + ".tmp";
+  const stateData = JSON.stringify(
+    {
+      timestamp,
+      totalTables: stateSnapshot.length,
+      config: {
+        minEvThreshold: dynamicConfig.minEvThreshold !== undefined ? parseFloat(dynamicConfig.minEvThreshold) : 0.0003,
+        rebateRate: dynamicConfig.rebateRate !== undefined ? parseFloat(dynamicConfig.rebateRate) : 0.012,
       },
-      null,
-      2
-    )
+      allScrapedTables,
+      ignoredTables,
+      eventsThisTick: eventsSummary,
+      eventLog: eventLog,
+      tables: stateSnapshot,
+    },
+    null,
+    2
   );
+
+  let retries = 5;
+  while (retries > 0) {
+    try {
+      fs.writeFileSync(tempPath, stateData, "utf8");
+      fs.renameSync(tempPath, filePath);
+      break;
+    } catch (e) {
+      retries--;
+      if (retries === 0) {
+        console.error(`[Eyes] Failed to write tables_state.json atomically:`, e.message);
+        // Fallback to direct write if rename consistently fails (e.g., due to file locking on Windows)
+        try {
+          fs.writeFileSync(filePath, stateData, "utf8");
+        } catch (e2) {
+          console.error(`[Eyes] Fallback direct write failed:`, e2.message);
+        }
+      } else {
+        // Synchronous delay before retry
+        const start = Date.now();
+        while (Date.now() - start < 50) {}
+      }
+    }
+  }
 }
 
 // ─── Main Orchestrator ───────────────────────────────────────────────────
