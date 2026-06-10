@@ -162,12 +162,15 @@ class TableStateManager {
       let forceReset = false;
       let resetReason = "";
 
-      if (newRound === 1 && ts.lastRound > 10) {
+      if (newRound > 0 && ts.lastRound > 0 && newRound < ts.lastRound) {
         forceReset = true;
-        resetReason = `Round number decreased from ${ts.lastRound} to 1`;
+        resetReason = `Round number decreased from ${ts.lastRound} to ${newRound}`;
+      } else if (table.statistics && ts.lastRound > 1 && table.statistics.length < ts.lastRound - 1) {
+        forceReset = true;
+        resetReason = `Server statistics history shrunk from ${ts.lastRound - 1} to ${table.statistics.length}`;
       } else if (table.statistics && table.statistics.length === 0 && ts.lastRound > 1 && newState !== "Shuffling") {
         forceReset = true;
-        resetReason = "Shuffling detected";
+        resetReason = "Shuffling detected (empty statistics)";
       }
 
       // ── Reset shoe instantly on Shuffling state or Fallback Triggers ──
@@ -352,17 +355,8 @@ class TableStateManager {
     ts.lastBankerCards = [];
     ts.lastEvResult = null;
     
-    // Clear deduced road on manual resets, fresh shoe commands, shuffles, or server stats resets
-    if (reason && (
-      reason.includes("Manual reset") ||
-      reason.includes("fresh shoe") ||
-      reason.includes("starting fresh") ||
-      reason.includes("Server statistics") ||
-      reason.includes("Shuffling") ||
-      reason.includes("Fresh round")
-    )) {
-      ts.deducedBeadRoad = [];
-    }
+    // Always clear deduced road when shoe is reset to avoid double-deduction freezes
+    ts.deducedBeadRoad = [];
     
     if (reason && reason.startsWith('Invalid state')) {
       ts.lastErrorResetReason = reason;
