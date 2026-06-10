@@ -106,10 +106,6 @@ async function checkAndReconcileTables(filteredTables, dynamicConfig) {
         if (inFlightReconciliations.has(key)) {
           continue; 
         }
-        // Limit concurrent outgoing reconciliation requests to avoid server/network congestion
-        if (inFlightReconciliations.size >= 10) {
-          continue;
-        }
         const snapshotFinalizedRound = ts.lastFinalizedRound;
         const snapshotResetCount = ts.shoeResetCount || 0;
         inFlightReconciliations.add(key);

@@ -386,7 +386,7 @@ function processCentralQueue() {
               },
             },
           )
-          .catch(() => { });
+          .catch(() => {});
       }
     } else {
       // The oldest bet is still fresh, so all subsequent bets are also fresh
@@ -794,7 +794,7 @@ function startDashboard(stateManager) {
           return;
         }
         const round = parseInt(roundStr, 10);
-
+        
         // 1. Check local state json
         const localMatch = await getRoundCardsFromStateJson(tableName, round);
         if (localMatch) {
@@ -802,7 +802,7 @@ function startDashboard(stateManager) {
           res.end(JSON.stringify({ ok: true, cards: localMatch }));
           return;
         }
-
+        
         // 2. Query peer if configured
         const peerUrl = process.env.PEER_CENTRAL_URL;
         if (peerUrl) {
@@ -821,14 +821,10 @@ function startDashboard(stateManager) {
               }
             }
           } catch (err) {
-            if (err.name === "AbortError" || err.message.includes("aborted")) {
-              console.warn(`[P2P Reconciliation] Peer query to ${peerUrl} timed out after 4s`);
-            } else {
-              console.error(`[P2P Reconciliation] Error querying peer Central ${peerUrl}:`, err.message);
-            }
+            console.error(`[P2P Reconciliation] Error querying peer Central ${peerUrl}:`, err.message);
           }
         }
-
+        
         res.writeHead(404, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: false, error: "Round cards not found in local state json or peer" }));
       } catch (e) {
