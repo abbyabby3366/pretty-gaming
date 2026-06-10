@@ -107,7 +107,7 @@ async function checkAndReconcileTables(filteredTables, dynamicConfig) {
           continue; 
         }
         // Limit concurrent outgoing reconciliation requests to avoid server/network congestion
-        if (inFlightReconciliations.size >= 3) {
+        if (inFlightReconciliations.size >= 10) {
           continue;
         }
         const snapshotFinalizedRound = ts.lastFinalizedRound;
