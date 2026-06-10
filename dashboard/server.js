@@ -803,7 +803,7 @@ function startDashboard(stateManager) {
           const peerRequestUrl = `${peerUrl.replace(/\/$/, '')}/api/peer/round-cards?table=${encodeURIComponent(tableName)}&round=${round}`;
           try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 4000); // 4s timeout
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
             const peerResponse = await fetch(peerRequestUrl, { signal: controller.signal });
             clearTimeout(timeoutId);
             if (peerResponse.ok) {
@@ -817,7 +817,7 @@ function startDashboard(stateManager) {
           } catch (err) {
             const isTimeout = err.name === 'AbortError' || err.message.includes('aborted');
             if (isTimeout) {
-              console.error(`[P2P Reconciliation] Peer query to ${peerUrl} timed out after 4s`);
+              console.error(`[P2P Reconciliation] Peer query to ${peerUrl} timed out after 10s`);
             } else {
               console.error(`[P2P Reconciliation] Error querying peer Central ${peerUrl}:`, err.message);
             }

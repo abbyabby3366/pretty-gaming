@@ -79,8 +79,12 @@ function fmtProb(p) {
 const reconcileNegativeCache = new Map();
 const NEGATIVE_CACHE_NOT_FOUND_MS = 5 * 60 * 1000; // 5 minutes for confirmed "not found"
 const NEGATIVE_CACHE_ERROR_MS = 60 * 1000;          // 60 seconds for timeout/connection errors
+let reconcileRunning = false;
 
 async function checkAndReconcileTables(filteredTables, dynamicConfig) {
+  if (reconcileRunning) return;
+  reconcileRunning = true;
+  try {
   for (const table of filteredTables) {
     const ts = stateManager.getTable(table.tableName);
     if (!ts) continue;
@@ -173,6 +177,9 @@ async function checkAndReconcileTables(filteredTables, dynamicConfig) {
     for (const [k, v] of reconcileNegativeCache) {
       if (now >= v.expiry) reconcileNegativeCache.delete(k);
     }
+  }
+  } finally {
+    reconcileRunning = false;
   }
 }
 
