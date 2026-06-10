@@ -77,6 +77,8 @@ class TableState {
     this.lastErrorResetReason = null;
     this.lastErrorResetTime = null;
     this.deducedBeadRoad = [];
+    this.consecutiveResetTicks = 0;
+    this.pendingResetReason = null;
   }
 
   get remaining() {
@@ -164,17 +166,35 @@ class TableStateManager {
       if (newRound > 0 && ts.lastRound > 0 && newRound < ts.lastRound) {
         forceReset = true;
         resetReason = `Round number decreased from ${ts.lastRound} to ${newRound}`;
-      } else if (table.statistics && ts.lastRound > 1 && table.statistics.length < ts.lastRound - 1) {
-        forceReset = true;
-        resetReason = `Server statistics history shrunk from ${ts.lastRound - 1} to ${table.statistics.length}`;
       } else if (table.statistics && table.statistics.length === 0 && ts.lastRound > 1 && newState !== "Shuffling") {
         forceReset = true;
         resetReason = "Shuffling detected (empty statistics)";
       }
 
-      // ── Reset shoe instantly on Shuffling state or Fallback Triggers ──
-      if (forceReset || (newState === "Shuffling" && prevState !== "Shuffling")) {
-        const reason = resetReason || "Shuffling state detected";
+      // Track consecutive occurrences of the fallback trigger to filter out transient network glitches
+      if (forceReset) {
+        ts.consecutiveResetTicks = (ts.consecutiveResetTicks || 0) + 1;
+        if (!ts.pendingResetReason) {
+          ts.pendingResetReason = resetReason;
+        }
+      } else {
+        ts.consecutiveResetTicks = 0;
+        ts.pendingResetReason = null;
+      }
+
+      // ── Reset shoe instantly on Shuffling state or Fallback Triggers (requiring 2 consecutive ticks) ──
+      let triggerReset = false;
+      let reason = "";
+
+      if (newState === "Shuffling" && prevState !== "Shuffling") {
+        triggerReset = true;
+        reason = "Shuffling state detected";
+      } else if (forceReset && ts.consecutiveResetTicks >= 2) {
+        triggerReset = true;
+        reason = ts.pendingResetReason || resetReason;
+      }
+
+      if (triggerReset) {
         this._resetShoe(ts, reason);
         events.push({
           type: "SHOE_RESET",
@@ -313,7 +333,12 @@ class TableStateManager {
       }
 
       ts.lastState = newState;
-      ts.lastRound = newRound;
+      const isShufflingOrTransition = newState === "Shuffling" || (table.statistics && table.statistics.length === 0 && newRound > 1);
+      if (isShufflingOrTransition) {
+        ts.lastRound = 0;
+      } else if (!forceReset) {
+        ts.lastRound = newRound;
+      }
     }
 
     return events;
@@ -342,6 +367,8 @@ class TableStateManager {
     
     // Always clear deduced road when shoe is reset to avoid double-deduction freezes
     ts.deducedBeadRoad = [];
+    ts.consecutiveResetTicks = 0;
+    ts.pendingResetReason = null;
     
     if (reason && reason.startsWith('Invalid state')) {
       ts.lastErrorResetReason = reason;
