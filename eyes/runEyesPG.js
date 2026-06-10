@@ -87,6 +87,11 @@ async function checkAndReconcileTables(filteredTables, dynamicConfig) {
       const expectedWinner = mapServerCodeToWinner(serverCode);
       if (!expectedWinner) continue;
 
+      // Only reconcile past rounds to let the local scraper process the current round naturally.
+      // A round r is past if the current table.round has moved past it, or if it is not the latest round in stats.
+      const isPastRound = (table.round && r < table.round) || r < stats.length;
+      if (!isPastRound) continue;
+
       const deducedItem = ts.deducedBeadRoad.find(item => item && item.round === r);
       let needsReconciliation = false;
 
@@ -100,6 +105,10 @@ async function checkAndReconcileTables(filteredTables, dynamicConfig) {
         const key = `${table.tableName}:${r}`;
         if (inFlightReconciliations.has(key)) {
           continue; 
+        }
+        // Limit concurrent outgoing reconciliation requests to avoid server/network congestion
+        if (inFlightReconciliations.size >= 3) {
+          continue;
         }
         const snapshotFinalizedRound = ts.lastFinalizedRound;
         const snapshotResetCount = ts.shoeResetCount || 0;
