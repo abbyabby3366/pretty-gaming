@@ -7,6 +7,7 @@ const { calculateEV } = require("./evCalculator");
 const { sendWhatsAppNotification } = require("../utils/whatsapp_notifier");
 
 const stateManager = new TableStateManager();
+const inFlightReconciliations = new Set();
 const eventLog = []; // In-memory event log, max 100 entries
 const MAX_EVENT_LOG = 100;
 
@@ -72,6 +73,91 @@ function fmtEv(ev) {
 
 function fmtProb(p) {
   return (p * 100).toFixed(2) + "%";
+}
+
+async function checkAndReconcileTables(filteredTables, dynamicConfig) {
+  for (const table of filteredTables) {
+    const ts = stateManager.getTable(table.tableName);
+    if (!ts) continue;
+
+    const stats = table.statistics || [];
+
+    for (let r = 1; r <= stats.length; r++) {
+      const serverCode = stats[r - 1];
+      const expectedWinner = mapServerCodeToWinner(serverCode);
+      if (!expectedWinner) continue;
+
+      const deducedItem = ts.deducedBeadRoad.find(item => item && item.round === r);
+      let needsReconciliation = false;
+
+      if (!deducedItem) {
+        needsReconciliation = true;
+      } else if (deducedItem.winner !== expectedWinner) {
+        needsReconciliation = true;
+      }
+
+      if (needsReconciliation) {
+        const key = `${table.tableName}:${r}`;
+        if (inFlightReconciliations.has(key)) {
+          continue; 
+        }
+        const snapshotFinalizedRound = ts.lastFinalizedRound;
+        const snapshotResetCount = ts.shoeResetCount || 0;
+        inFlightReconciliations.add(key);
+
+        fetch(`http://localhost:3456/api/reconcile-round?table=${encodeURIComponent(table.tableName)}&round=${r}`)
+          .then(res => res.json())
+          .then(data => {
+            inFlightReconciliations.delete(key);
+            if (data.ok && data.cards) {
+              const currentTs = stateManager.getTable(table.tableName);
+              if (!currentTs) return;
+
+              // Guard: if the shoe was reset since we made the request, skip
+              // (lastFinalizedRound drops to 0 on reset, or the shoe reset count changed)
+              const currentResetCount = currentTs.shoeResetCount || 0;
+              if (currentResetCount !== snapshotResetCount || (currentTs.lastFinalizedRound === 0 && snapshotFinalizedRound > 0)) {
+                console.log(`\x1b[33m[RECONCILE] Skipping R${r} for ${table.tableName} — shoe was reset since request\x1b[0m`);
+                return; 
+              }
+
+              const success = currentTs.reconcileRound(r, data.cards.playerCards, data.cards.bankerCards, serverCode);
+              if (success) {
+                const evResult = calculateEV(currentTs.deckComposition, dynamicConfig);
+                if (evResult) {
+                  currentTs.lastEvResult = evResult;
+                }
+                saveState();
+                
+                let ignoredTables = [];
+                try {
+                  const cfgPath = path.join(__dirname, "..", "dashboard", "config.json");
+                  if (fs.existsSync(cfgPath)) {
+                    const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
+                    ignoredTables = cfg.ignoredTables || [];
+                  }
+                } catch(e){}
+                
+                const timestamp = new Date().toISOString().replace(/:/g, "-").split(".")[0];
+                const allScrapedTables = filteredTables.map(t => t.tableName);
+                writeStateJson(filteredTables, timestamp, [], allScrapedTables, ignoredTables, dynamicConfig);
+              }
+            }
+          })
+          .catch(() => {
+            inFlightReconciliations.delete(key);
+          });
+      }
+    }
+  }
+}
+
+function mapServerCodeToWinner(code) {
+  if (!code) return null;
+  if (code.startsWith('p')) return 'P';
+  if (code.startsWith('b')) return 'B';
+  if (code.startsWith('t')) return 'T';
+  return null;
 }
 
 // ─── Step 2: Analyse State ───────────────────────────────────────────────
@@ -420,6 +506,7 @@ async function runEyesPG(pageOrRef, extractorCode, acctConfig) {
 
         // Step 2: Analyse state transitions
         const events = analyseState(filteredTables);
+        checkAndReconcileTables(filteredTables, dynamicConfig);
         if (events.some(e => ["HAND_COMPLETE", "STATE_CHANGE", "SHOE_RESET"].includes(e.type))) {
           lastStateChangeTime = Date.now();
         }

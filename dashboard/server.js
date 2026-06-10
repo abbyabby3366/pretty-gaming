@@ -41,6 +41,28 @@ const betLog = [];
 const centralBetQueue = [];
 const MAX_BET_LOG = 1000;
 
+function getRoundCardsFromStateJson(tableName, round) {
+  const filePath = path.join(__dirname, "..", "eyes", "json", "tables_state.json");
+  try {
+    if (fs.existsSync(filePath)) {
+      const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
+      if (data && Array.isArray(data.tables)) {
+        const table = data.tables.find(t => t.tableName === tableName);
+        if (table && Array.isArray(table.deducedBeadRoad)) {
+          const match = table.deducedBeadRoad.find(r => r && r.round === round);
+          if (match) {
+            return match;
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error(`[P2P Reconciliation] Error reading tables_state.json:`, e.message);
+  }
+  return null;
+}
+
+
 let cachedSuccessRates = {
   last100: null,
   last1000: null,
@@ -747,6 +769,84 @@ function startDashboard(stateManager) {
   setInterval(reportStatsToCentral, 10000);
 
   const server = http.createServer(async (req, res) => {
+    // Reconciliation & Completed Hand API Endpoints
+    if (req.method === "GET" && req.url.startsWith("/api/reconcile-round")) {
+      try {
+        const url = new URL(req.url, `http://localhost:${PORT}`);
+        const tableName = url.searchParams.get("table");
+        const roundStr = url.searchParams.get("round");
+        if (!tableName || !roundStr) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: "Missing table or round param" }));
+          return;
+        }
+        const round = parseInt(roundStr, 10);
+        
+        // 1. Check local state json
+        const localMatch = getRoundCardsFromStateJson(tableName, round);
+        if (localMatch) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true, cards: localMatch }));
+          return;
+        }
+        
+        // 2. Query peer if configured
+        const peerUrl = process.env.PEER_CENTRAL_URL;
+        if (peerUrl) {
+          const peerRequestUrl = `${peerUrl.replace(/\/$/, '')}/api/peer/round-cards?table=${encodeURIComponent(tableName)}&round=${round}`;
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 4000); // 4s timeout
+            const peerResponse = await fetch(peerRequestUrl, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            if (peerResponse.ok) {
+              const peerData = await peerResponse.json();
+              if (peerData.ok && peerData.cards) {
+                res.writeHead(200, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ ok: true, cards: peerData.cards }));
+                return;
+              }
+            }
+          } catch (err) {
+            console.error(`[P2P Reconciliation] Error querying peer Central ${peerUrl}:`, err.message);
+          }
+        }
+        
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "Round cards not found in local state json or peer" }));
+      } catch (e) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+      return;
+    }
+
+    if (req.method === "GET" && req.url.startsWith("/api/peer/round-cards")) {
+      try {
+        const url = new URL(req.url, `http://localhost:${PORT}`);
+        const tableName = url.searchParams.get("table");
+        const roundStr = url.searchParams.get("round");
+        if (!tableName || !roundStr) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: "Missing table or round param" }));
+          return;
+        }
+        const round = parseInt(roundStr, 10);
+        const localMatch = getRoundCardsFromStateJson(tableName, round);
+        if (localMatch) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true, cards: localMatch }));
+        } else {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: "Round not found in local state json" }));
+        }
+      } catch (e) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+      return;
+    }
+
     // API endpoints
     if (req.method === "POST" && req.url.startsWith("/api/bet-module/heartbeat")) {
       try {

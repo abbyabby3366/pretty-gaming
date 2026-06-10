@@ -93,6 +93,7 @@
     .bead.P { background: var(--blue); }
     .bead.B { background: var(--red); }
     .bead.T { background: var(--green); }
+    .bead.reconciled { outline: 1px solid var(--yellow); outline-offset: 1px; }
     .bead-road-list::-webkit-scrollbar { height: 2px; }
     .bead-road-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 1px; }
 
@@ -274,13 +275,17 @@
             const item = (t.deducedBeadRoad || []).find(x => x && typeof x === 'object' && x.round === rNum);
             if (item && item.winner) {
               let titleText = `Round ${rNum}`;
+              if (item.isReconciled) {
+                titleText += ` (Reconciled)`;
+              }
               if (item.playerCards && item.playerCards.length) {
                 titleText += `\nPlayer: [${item.playerCards.join(', ')}]`;
               }
               if (item.bankerCards && item.bankerCards.length) {
                 titleText += `\nBanker: [${item.bankerCards.join(', ')}]`;
               }
-              deducedList.push(`<div class="bead-col"><span class="bead-num">${rNum}</span><span class="bead ${item.winner}" title="${titleText}">${item.winner}</span></div>`);
+              const recClass = item.isReconciled ? ' reconciled' : '';
+              deducedList.push(`<div class="bead-col"><span class="bead-num">${rNum}</span><span class="bead ${item.winner}${recClass}" title="${titleText}">${item.winner}</span></div>`);
             } else {
               deducedList.push(`<div class="bead-col"><span class="bead-num">${rNum}</span><span class="bead" style="background:transparent; visibility:hidden;"></span></div>`);
             }
