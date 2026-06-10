@@ -9,7 +9,7 @@
  */
 
 const { sendWhatsAppNotification } = require('../utils/whatsapp_notifier');
-const { checkTickValidations, checkWarningNeeded, checkImpossibleCard, checkGhostHands } = require('./stateValidators');
+const { checkTickValidations, checkImpossibleCard, checkGhostHands } = require('./stateValidators');
 function mapServerCodeToWinner(code) {
   if (!code) return null;
   if (code.startsWith('p')) return 'P';
@@ -64,7 +64,6 @@ class TableState {
     this.lastState = null;
     this.lastRound = 0;
     this.deckComposition = freshShoe(); // 13-slot
-    this.handNumber = 0;
     this.lastFinalizedRound = 0;
     this.lastPlayerCards = [];
     this.lastBankerCards = [];
@@ -241,7 +240,6 @@ class TableStateManager {
             }
           }
 
-          ts.handNumber++;
           ts.lastPlayerCards = table.playerCards.slice();
           ts.lastBankerCards = table.bankerCards.slice();
           ts.lastFinalizedRound = newRound;
@@ -268,7 +266,6 @@ class TableStateManager {
               type: "HAND_COMPLETE",
               tableName: name,
               tableState: ts,
-              handNumber: ts.handNumber,
               round: newRound,
               playerCards: table.playerCards,
               bankerCards: table.bankerCards,
@@ -299,17 +296,6 @@ class TableStateManager {
           reason: tickInvalidReason,
           finalRound: ts.lastRound
         });
-      } else {
-        if (checkWarningNeeded(ts, newRound)) {
-          if (!ts.hasWarnedAhead) {
-            const msg = `[WARNING] ${name}: recorded hands (${ts.handNumber}) is ahead of table UI round (${newRound}). Awaiting correction.`;
-            console.log(`\x1b[33m${msg}\x1b[0m`);
-            sendWhatsAppNotification(msg).catch(err => console.error("WhatsApp Notification failed:", err));
-            ts.hasWarnedAhead = true;
-          }
-        } else if (ts.handNumber <= newRound) {
-          ts.hasWarnedAhead = false;
-        }
       }
 
       // ── Dispatch generic state transitions ──
@@ -345,7 +331,6 @@ class TableStateManager {
     const isSpam = (now - lastSent) < 15 * 60 * 1000;
 
     ts.deckComposition = freshShoe();
-    ts.handNumber = 0;
     ts.lastFinalizedRound = 0;
     ts.hasWarnedAhead = false;
     ts.consecutiveZeroCardHands = 0;
@@ -392,7 +377,6 @@ class TableStateManager {
         lastState: ts.lastState,
         lastRound: ts.lastRound,
         deckComposition: ts.deckComposition,
-        handNumber: ts.handNumber,
         lastFinalizedRound: ts.lastFinalizedRound,
         lastPlayerCards: ts.lastPlayerCards,
         lastBankerCards: ts.lastBankerCards,
@@ -421,7 +405,6 @@ class TableStateManager {
       ts.lastState = saved.lastState || null;
       ts.lastRound = saved.lastRound || 0;
       ts.deckComposition = saved.deckComposition || freshShoe();
-      ts.handNumber = saved.handNumber || 0;
       ts.lastFinalizedRound = saved.lastFinalizedRound || saved.lastRound || 0;
       ts.lastPlayerCards = (saved.lastPlayerCards || []).map(normalizeCard);
       ts.lastBankerCards = (saved.lastBankerCards || []).map(normalizeCard);

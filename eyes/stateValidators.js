@@ -11,30 +11,20 @@ function checkTickValidations(ts, newRound, newState, prevState) {
     return `Stale state: round went from ${ts.lastRound} → ${newRound} after restore`;
   }
 
-  // 2. Recorded hands significantly ahead of UI round
-  if (ts.handNumber >= newRound + 3 && newRound > 0) {
-    return `Invalid state: recorded hands (${ts.handNumber}) >= table round + 3 (${newRound + 3})`;
-  }
-
-  // 3. Mathematically invalid deck size or hard limit <= 16
-  const effectiveRound = Math.max(newRound, ts.handNumber);
-  const minExpectedCards = 416 - ((effectiveRound + 1) * 6);
+  // 2. Mathematically invalid deck size or hard limit <= 16
+  const minExpectedCards = 416 - ((newRound + 1) * 6);
   const adjustedMinCards = Math.max(0, minExpectedCards);
 
   if ((ts.remaining < adjustedMinCards || ts.remaining <= 16) && newState !== "Shuffling") {
     return `Invalid state: cards left (${ts.remaining}) critically low (<= 16) or < expected min (${adjustedMinCards}) for round ${newRound}`;
   }
 
-  // 4. Hard Limit on Round Number (Mathematically improbable)
+  // 3. Hard Limit on Round Number (Mathematically improbable)
   if (newRound > 90 && newState !== "Shuffling") {
     return `Invalid state: round number (${newRound}) mathematically exceeds standard 8-deck shoe (> 90)`;
   }
 
   return null; // State is valid
-}
-
-function checkWarningNeeded(ts, newRound) {
-  return (ts.handNumber >= newRound + 2 && newRound > 0 && ts.handNumber < newRound + 3);
 }
 
 function checkImpossibleCard(deckComposition, rankIdx, cardName) {
@@ -53,7 +43,6 @@ function checkGhostHands(consecutiveZeroCardHands) {
 
 module.exports = {
   checkTickValidations,
-  checkWarningNeeded,
   checkImpossibleCard,
   checkGhostHands
 };

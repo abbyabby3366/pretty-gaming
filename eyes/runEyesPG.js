@@ -262,7 +262,6 @@ function writeStateJson(tables, timestamp, events, allScrapedTables = [], ignore
 
       // ── State manager tracking ──
       previousState: ts ? ts.lastState : null,
-      handNumber: ts ? ts.handNumber : 0,
       deckRemaining: ts ? ts.remaining : 416,
       deckComposition: ts ? ts.deckComposition : null,
       // Labelled for readability: { A:32, 2:32, ..., K:32 }
