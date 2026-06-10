@@ -7,7 +7,6 @@ const { calculateEV } = require("./evCalculator");
 const { sendWhatsAppNotification } = require("../utils/whatsapp_notifier");
 
 const stateManager = new TableStateManager();
-const inFlightReconciliations = new Set();
 const eventLog = []; // In-memory event log, max 100 entries
 const MAX_EVENT_LOG = 100;
 
@@ -75,6 +74,12 @@ function fmtProb(p) {
   return (p * 100).toFixed(2) + "%";
 }
 
+// Negative cache: tracks rounds where peer lookup failed, to avoid re-querying.
+// Value is { expiry: timestamp } — skip if Date.now() < expiry.
+const reconcileNegativeCache = new Map();
+const NEGATIVE_CACHE_NOT_FOUND_MS = 5 * 60 * 1000; // 5 minutes for confirmed "not found"
+const NEGATIVE_CACHE_ERROR_MS = 60 * 1000;          // 60 seconds for timeout/connection errors
+
 async function checkAndReconcileTables(filteredTables, dynamicConfig) {
   for (const table of filteredTables) {
     const ts = stateManager.getTable(table.tableName);
@@ -88,7 +93,6 @@ async function checkAndReconcileTables(filteredTables, dynamicConfig) {
       if (!expectedWinner) continue;
 
       // Only reconcile past rounds to let the local scraper process the current round naturally.
-      // A round r is past if the current table.round has moved past it, or if it is not the latest round in stats.
       const isPastRound = (table.round && r < table.round) || r < stats.length;
       if (!isPastRound) continue;
 
@@ -101,58 +105,73 @@ async function checkAndReconcileTables(filteredTables, dynamicConfig) {
         needsReconciliation = true;
       }
 
-      if (needsReconciliation) {
-        const key = `${table.tableName}:${r}`;
-        if (inFlightReconciliations.has(key)) {
-          continue; 
-        }
-        const snapshotFinalizedRound = ts.lastFinalizedRound;
-        const snapshotResetCount = ts.shoeResetCount || 0;
-        inFlightReconciliations.add(key);
+      if (!needsReconciliation) continue;
 
-        fetch(`http://localhost:3456/api/reconcile-round?table=${encodeURIComponent(table.tableName)}&round=${r}`)
-          .then(res => res.json())
-          .then(async data => {
-            inFlightReconciliations.delete(key);
-            if (data.ok && data.cards) {
-              const currentTs = stateManager.getTable(table.tableName);
-              if (!currentTs) return;
+      const key = `${table.tableName}:${r}`;
 
-              // Guard: if the shoe was reset since we made the request, skip
-              // (lastFinalizedRound drops to 0 on reset, or the shoe reset count changed)
-              const currentResetCount = currentTs.shoeResetCount || 0;
-              if (currentResetCount !== snapshotResetCount || (currentTs.lastFinalizedRound === 0 && snapshotFinalizedRound > 0)) {
-                console.log(`\x1b[33m[RECONCILE] Skipping R${r} for ${table.tableName} — shoe was reset since request\x1b[0m`);
-                return; 
-              }
-
-              const success = currentTs.reconcileRound(r, data.cards.playerCards, data.cards.bankerCards, serverCode);
-              if (success) {
-                const evResult = calculateEV(currentTs.deckComposition, dynamicConfig);
-                if (evResult) {
-                  currentTs.lastEvResult = evResult;
-                }
-                saveState();
-                
-                let ignoredTables = [];
-                try {
-                  const cfgPath = path.join(__dirname, "..", "dashboard", "config.json");
-                  if (fs.existsSync(cfgPath)) {
-                    const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
-                    ignoredTables = cfg.ignoredTables || [];
-                  }
-                } catch(e){}
-                
-                const timestamp = new Date().toISOString().replace(/:/g, "-").split(".")[0];
-                const allScrapedTables = filteredTables.map(t => t.tableName);
-                await writeStateJson(filteredTables, timestamp, [], allScrapedTables, ignoredTables, dynamicConfig);
-              }
-            }
-          })
-          .catch(() => {
-            inFlightReconciliations.delete(key);
-          });
+      // Check negative cache — skip if we recently failed for this round
+      const cached = reconcileNegativeCache.get(key);
+      if (cached && Date.now() < cached.expiry) {
+        continue;
       }
+
+      // Serialize: await each request before moving to the next
+      const snapshotFinalizedRound = ts.lastFinalizedRound;
+      const snapshotResetCount = ts.shoeResetCount || 0;
+
+      try {
+        const res = await fetch(`http://localhost:3456/api/reconcile-round?table=${encodeURIComponent(table.tableName)}&round=${r}`);
+        const data = await res.json();
+
+        if (data.ok && data.cards) {
+          const currentTs = stateManager.getTable(table.tableName);
+          if (!currentTs) continue;
+
+          // Guard: if the shoe was reset since we made the request, skip
+          const currentResetCount = currentTs.shoeResetCount || 0;
+          if (currentResetCount !== snapshotResetCount || (currentTs.lastFinalizedRound === 0 && snapshotFinalizedRound > 0)) {
+            console.log(`\x1b[33m[RECONCILE] Skipping R${r} for ${table.tableName} — shoe was reset since request\x1b[0m`);
+            continue;
+          }
+
+          const success = currentTs.reconcileRound(r, data.cards.playerCards, data.cards.bankerCards, serverCode);
+          if (success) {
+            const evResult = calculateEV(currentTs.deckComposition, dynamicConfig);
+            if (evResult) {
+              currentTs.lastEvResult = evResult;
+            }
+            saveState();
+
+            let ignoredTables = [];
+            try {
+              const cfgPath = path.join(__dirname, "..", "dashboard", "config.json");
+              if (fs.existsSync(cfgPath)) {
+                const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
+                ignoredTables = cfg.ignoredTables || [];
+              }
+            } catch(e){}
+
+            const timestamp = new Date().toISOString().replace(/:/g, "-").split(".")[0];
+            const allScrapedTables = filteredTables.map(t => t.tableName);
+            writeStateJson(filteredTables, timestamp, [], allScrapedTables, ignoredTables, dynamicConfig);
+          }
+        } else {
+          // Not found or error — add to negative cache
+          const ttl = (data.reason === "peer_error") ? NEGATIVE_CACHE_ERROR_MS : NEGATIVE_CACHE_NOT_FOUND_MS;
+          reconcileNegativeCache.set(key, { expiry: Date.now() + ttl });
+        }
+      } catch (err) {
+        // Network error reaching local Central — cache briefly
+        reconcileNegativeCache.set(key, { expiry: Date.now() + NEGATIVE_CACHE_ERROR_MS });
+      }
+    }
+  }
+
+  // Housekeep: prune expired entries from negative cache periodically
+  if (reconcileNegativeCache.size > 200) {
+    const now = Date.now();
+    for (const [k, v] of reconcileNegativeCache) {
+      if (now >= v.expiry) reconcileNegativeCache.delete(k);
     }
   }
 }
@@ -540,6 +559,17 @@ async function runEyesPG(pageOrRef, extractorCode, acctConfig) {
 
         // Step 2: Analyse state transitions
         const events = analyseState(filteredTables);
+
+        // Clear negative cache for tables that had a shoe reset
+        for (const e of events) {
+          if (e.type === "SHOE_RESET" && e.tableName) {
+            const prefix = `${e.tableName}:`;
+            for (const key of reconcileNegativeCache.keys()) {
+              if (key.startsWith(prefix)) reconcileNegativeCache.delete(key);
+            }
+          }
+        }
+
         checkAndReconcileTables(filteredTables, dynamicConfig);
         if (events.some(e => ["HAND_COMPLETE", "STATE_CHANGE", "SHOE_RESET"].includes(e.type))) {
           lastStateChangeTime = Date.now();
