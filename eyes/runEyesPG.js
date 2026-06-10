@@ -423,7 +423,6 @@ async function writeStateJson(tables, timestamp, events, allScrapedTables = [], 
   }));
 
   const filePath = path.join(__dirname, "json", "tables_state.json");
-  const tempPath = filePath + ".tmp";
   const stateData = JSON.stringify(
     {
       timestamp,
@@ -442,34 +441,18 @@ async function writeStateJson(tables, timestamp, events, allScrapedTables = [], 
     2
   );
 
-  // Post state update to dashboard server
+  // Post state update to dashboard server (in-memory, no file read needed)
   fetch("http://localhost:3456/api/update-state", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: stateData
   }).catch(() => {});
 
-  let retries = 5;
-  while (retries > 0) {
-    try {
-      await fs.promises.writeFile(tempPath, stateData, "utf8");
-      await fs.promises.rename(tempPath, filePath);
-      break;
-    } catch (e) {
-      retries--;
-      if (retries === 0) {
-        console.error(`[Eyes] Failed to write tables_state.json atomically:`, e.message);
-        // Fallback to direct write if rename consistently fails (e.g., due to file locking on Windows)
-        try {
-          await fs.promises.writeFile(filePath, stateData, "utf8");
-        } catch (e2) {
-          console.error(`[Eyes] Fallback direct write failed:`, e2.message);
-        }
-      } else {
-        // Asynchronous delay before retry (doesn't block event loop)
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
-    }
+  // Write to disk for persistence (only read at startup, no cross-process race)
+  try {
+    fs.writeFileSync(filePath, stateData, "utf8");
+  } catch (e) {
+    console.error(`[Eyes] Failed to write tables_state.json:`, e.message);
   }
 }
 

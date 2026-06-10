@@ -166,7 +166,6 @@ class TableState {
       
       const msg = `[RECONCILE] ${this.tableName} R${round} discrepancy corrected successfully! Replaced [P:${oldItem.playerCards || []}, B:${oldItem.bankerCards || []}] with verified [P:${playerCards.join(",")}, B:${bankerCards.join(",")}]`;
       console.log(`\x1b[33m${msg}\x1b[0m`);
-      sendWhatsAppNotification(msg).catch(() => {});
       
       const allOldCards = [...(oldItem.playerCards || []), ...(oldItem.bankerCards || [])];
       for (const card of allOldCards) {
@@ -183,7 +182,6 @@ class TableState {
     } else {
       const msg = `[RECONCILE] ${this.tableName} R${round} gap recovered successfully! Cards: [P:${playerCards.join(",")}, B:${bankerCards.join(",")}]`;
       console.log(`\x1b[36m${msg}\x1b[0m`);
-      sendWhatsAppNotification(msg).catch(() => {});
       
       this.deducedBeadRoad.push({
         round: round,
