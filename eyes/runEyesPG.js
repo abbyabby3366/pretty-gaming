@@ -112,7 +112,7 @@ async function checkAndReconcileTables(filteredTables, dynamicConfig) {
 
         fetch(`http://localhost:3456/api/reconcile-round?table=${encodeURIComponent(table.tableName)}&round=${r}`)
           .then(res => res.json())
-          .then(data => {
+          .then(async data => {
             inFlightReconciliations.delete(key);
             if (data.ok && data.cards) {
               const currentTs = stateManager.getTable(table.tableName);
@@ -145,7 +145,7 @@ async function checkAndReconcileTables(filteredTables, dynamicConfig) {
                 
                 const timestamp = new Date().toISOString().replace(/:/g, "-").split(".")[0];
                 const allScrapedTables = filteredTables.map(t => t.tableName);
-                writeStateJson(filteredTables, timestamp, [], allScrapedTables, ignoredTables, dynamicConfig);
+                await writeStateJson(filteredTables, timestamp, [], allScrapedTables, ignoredTables, dynamicConfig);
               }
             }
           })
@@ -338,7 +338,7 @@ function sendSignals(events) {
 
 // ─── Write State JSON (after Step 2, before EV) ─────────────────────────
 
-function writeStateJson(tables, timestamp, events, allScrapedTables = [], ignoredTables = [], dynamicConfig = {}) {
+async function writeStateJson(tables, timestamp, events, allScrapedTables = [], ignoredTables = [], dynamicConfig = {}) {
   const stateSnapshot = [];
   for (const table of tables) {
     const ts = stateManager.getTable(table.tableName);
@@ -423,11 +423,18 @@ function writeStateJson(tables, timestamp, events, allScrapedTables = [], ignore
     2
   );
 
+  // Post state update to dashboard server
+  fetch("http://localhost:3456/api/update-state", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: stateData
+  }).catch(() => {});
+
   let retries = 5;
   while (retries > 0) {
     try {
-      fs.writeFileSync(tempPath, stateData, "utf8");
-      fs.renameSync(tempPath, filePath);
+      await fs.promises.writeFile(tempPath, stateData, "utf8");
+      await fs.promises.rename(tempPath, filePath);
       break;
     } catch (e) {
       retries--;
@@ -435,14 +442,13 @@ function writeStateJson(tables, timestamp, events, allScrapedTables = [], ignore
         console.error(`[Eyes] Failed to write tables_state.json atomically:`, e.message);
         // Fallback to direct write if rename consistently fails (e.g., due to file locking on Windows)
         try {
-          fs.writeFileSync(filePath, stateData, "utf8");
+          await fs.promises.writeFile(filePath, stateData, "utf8");
         } catch (e2) {
           console.error(`[Eyes] Fallback direct write failed:`, e2.message);
         }
       } else {
-        // Synchronous delay before retry
-        const start = Date.now();
-        while (Date.now() - start < 50) {}
+        // Asynchronous delay before retry (doesn't block event loop)
+        await new Promise(resolve => setTimeout(resolve, 50));
       }
     }
   }
@@ -540,7 +546,7 @@ async function runEyesPG(pageOrRef, extractorCode, acctConfig) {
         }
 
         // Write complete state JSON (right after analysis, before EV calc)
-        writeStateJson(filteredTables, timestamp, events, allScrapedTables, ignoredTables, dynamicConfig);
+        await writeStateJson(filteredTables, timestamp, events, allScrapedTables, ignoredTables, dynamicConfig);
 
         if (events.length > 0) {
           // Step 3: Calculate EV for state-change events
@@ -571,7 +577,7 @@ async function runEyesPG(pageOrRef, extractorCode, acctConfig) {
           sendSignals(events);
 
           // Re-write state JSON after EV calculation (now includes fresh EV results)
-          writeStateJson(filteredTables, timestamp, events, allScrapedTables, ignoredTables, dynamicConfig);
+          await writeStateJson(filteredTables, timestamp, events, allScrapedTables, ignoredTables, dynamicConfig);
         }
       }
 

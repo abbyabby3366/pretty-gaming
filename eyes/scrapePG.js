@@ -20,10 +20,11 @@ async function scrapePG(page, unused_extractorCode, acctConfig = {}) {
     const tableData = [];
 
     const stateMapping = {
-      "CountDown": "Waiting for Bets",
-      "showResult": "Dealing",
-      "PayOut": "Result",
-      "Shuffle": "Shuffling"
+      "countdown": "Waiting for Bets",
+      "showresult": "Dealing",
+      "payout": "Result",
+      "shuffle": "Shuffling",
+      "shuffling": "Shuffling"
     };
 
     function mapServerCodeToWinner(code) {
@@ -48,11 +49,12 @@ async function scrapePG(page, unused_extractorCode, acctConfig = {}) {
       let roundNumber = entry.round || 0;
 
       // Determine standardized state
-      let state = stateMapping[entry.status] || entry.status || "Waiting for Bets";
+      const statusKey = entry.status ? String(entry.status).toLowerCase() : "";
+      let state = stateMapping[statusKey] || entry.status || "Waiting for Bets";
       let winner = null;
 
       // Extract winner outcome inside PayOut state
-      if (entry.status === "PayOut") {
+      if (entry.status && entry.status.toLowerCase() === "payout") {
         if (entry.result && entry.result.rsBc) {
           const rs = entry.result.rsBc;
           const pPoints = rs.player123;

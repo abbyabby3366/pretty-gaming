@@ -14,13 +14,14 @@ function checkTickValidations(ts, newRound, newState, prevState) {
   // 2. Mathematically invalid deck size or hard limit <= 16
   const minExpectedCards = 416 - ((newRound + 1) * 6);
   const adjustedMinCards = Math.max(0, minExpectedCards);
+  const isShuffling = newState && newState.toLowerCase().includes("shuff");
 
-  if ((ts.remaining < adjustedMinCards || ts.remaining <= 16) && newState !== "Shuffling") {
+  if ((ts.remaining < adjustedMinCards || ts.remaining <= 16) && !isShuffling) {
     return `Invalid state: cards left (${ts.remaining}) critically low (<= 16) or < expected min (${adjustedMinCards}) for round ${newRound}`;
   }
 
   // 3. Hard Limit on Round Number (Mathematically improbable)
-  if (newRound > 90 && newState !== "Shuffling") {
+  if (newRound > 90 && !isShuffling) {
     return `Invalid state: round number (${newRound}) mathematically exceeds standard 8-deck shoe (> 90)`;
   }
 

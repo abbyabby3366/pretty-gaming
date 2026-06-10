@@ -238,6 +238,8 @@ class TableStateManager {
       const ts = this.tables.get(name);
       const prevState = ts.lastState;
       const newState = table.state;
+      const isShuffling = newState && newState.toLowerCase().includes("shuff");
+      const wasShuffling = prevState && prevState.toLowerCase().includes("shuff");
       let newRound = table.round;
 
       // If a new shoe has officially started (round 1), clear the deduced bead road
@@ -293,7 +295,7 @@ class TableStateManager {
       if (newRound > 0 && ts.lastRound > 0 && newRound < ts.lastRound) {
         forceReset = true;
         resetReason = `Round number decreased from ${ts.lastRound} to ${newRound}`;
-      } else if (table.statistics && table.statistics.length === 0 && ts.lastRound > 1 && newState !== "Shuffling") {
+      } else if (table.statistics && table.statistics.length === 0 && ts.lastRound > 1 && !isShuffling) {
         forceReset = true;
         resetReason = "Shuffling detected (empty statistics)";
       }
@@ -313,9 +315,11 @@ class TableStateManager {
       let triggerReset = false;
       let reason = "";
 
-      if (newState === "Shuffling" && prevState !== "Shuffling") {
-        triggerReset = true;
-        reason = "Shuffling state detected";
+      if (isShuffling) {
+        if (!wasShuffling || ts.remaining !== 416 || ts.lastErrorResetReason !== null) {
+          triggerReset = true;
+          reason = "Shuffling state detected";
+        }
       } else if (forceReset && ts.consecutiveResetTicks >= 2) {
         triggerReset = true;
         reason = ts.pendingResetReason || resetReason;
@@ -460,7 +464,7 @@ class TableStateManager {
       }
 
       ts.lastState = newState;
-      const isShufflingOrTransition = newState === "Shuffling" || (table.statistics && table.statistics.length === 0 && newRound > 1);
+      const isShufflingOrTransition = isShuffling || (table.statistics && table.statistics.length === 0 && newRound > 1);
       if (isShufflingOrTransition) {
         ts.lastRound = 0;
       } else if (!forceReset) {

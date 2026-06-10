@@ -36,12 +36,37 @@ function saveConfig() {
 const PORT = 3456;
 const ROOT = path.join(__dirname, "..");
 
+let latestTablesState = null;
+
+try {
+  const initPath = path.join(ROOT, "eyes", "json", "tables_state.json");
+  if (fs.existsSync(initPath)) {
+    const content = fs.readFileSync(initPath, "utf8");
+    if (content && content.trim() !== "") {
+      latestTablesState = JSON.parse(content);
+      console.log(`[Central] Initialized in-memory tables state from disk`);
+    }
+  }
+} catch (e) {
+  console.error(`[Central] Failed to load initial tables state:`, e.message);
+}
+
 let _stateManager = null;
 const betLog = [];
 const centralBetQueue = [];
 const MAX_BET_LOG = 1000;
 
 async function getRoundCardsFromStateJson(tableName, round) {
+  if (latestTablesState && Array.isArray(latestTablesState.tables)) {
+    const table = latestTablesState.tables.find(t => t.tableName === tableName);
+    if (table && Array.isArray(table.deducedBeadRoad)) {
+      const match = table.deducedBeadRoad.find(r => r && r.round === round);
+      if (match) {
+        return match;
+      }
+    }
+  }
+
   const filePath = path.join(__dirname, "..", "eyes", "json", "tables_state.json");
   let retries = 5;
   while (retries > 0) {
@@ -1227,10 +1252,24 @@ function startDashboard(stateManager) {
         const skip = (page - 1) * limit;
 
         let lastUpdated = null;
-        try {
-          const stats = fs.statSync(path.join(ROOT, "eyes", "json", "tables_state.json"));
-          lastUpdated = stats.mtime.toISOString();
-        } catch (e) { }
+        if (latestTablesState && latestTablesState.timestamp) {
+          try {
+            const parts = latestTablesState.timestamp.split('T');
+            if (parts.length === 2) {
+              const isoTime = parts[0] + 'T' + parts[1].replace(/-/g, ':') + 'Z';
+              lastUpdated = new Date(isoTime).toISOString();
+            } else {
+              lastUpdated = new Date(latestTablesState.timestamp).toISOString();
+            }
+          } catch (e) {
+            lastUpdated = new Date().toISOString();
+          }
+        } else {
+          try {
+            const stats = fs.statSync(path.join(ROOT, "eyes", "json", "tables_state.json"));
+            lastUpdated = stats.mtime.toISOString();
+          } catch (e) { }
+        }
 
         const onlineModules = Array.from(activeModules.values()).map(m => {
           const mid = m.moduleId;
@@ -1307,6 +1346,19 @@ function startDashboard(stateManager) {
       return;
     }
 
+    if (req.method === "POST" && req.url.startsWith("/api/update-state")) {
+      try {
+        const body = await parseJSONBody(req);
+        latestTablesState = body;
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+      return;
+    }
+
     // GET routes
     let filePath;
     if (req.url === "/" || req.url === "/index.html") {
@@ -1316,6 +1368,14 @@ function startDashboard(stateManager) {
     } else if (req.url === "/stats.html" || req.url === "/stats") {
       filePath = path.join(__dirname, "stats.html");
     } else if (req.url.startsWith("/tables_state.json")) {
+      if (latestTablesState) {
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-cache",
+        });
+        res.end(JSON.stringify(latestTablesState));
+        return;
+      }
       filePath = path.join(ROOT, "eyes", "json", "tables_state.json");
     } else if (req.url === "/favicon.ico") {
       filePath = path.join(__dirname, "favicon.ico");
