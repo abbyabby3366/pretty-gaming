@@ -135,6 +135,7 @@ class TableState {
     this.consecutiveResetTicks = 0;
     this.pendingResetReason = null;
     this.shoeResetCount = 0;
+    this.shoeAlreadyReset = false;
   }
 
   get remaining() {
@@ -244,6 +245,11 @@ class TableStateManager {
       if (newRound === 1 && ts.lastRound !== 1) {
         ts.deducedBeadRoad = [];
       }
+
+      // Clear the shuffle-reset guard when the table leaves shuffling state
+      if (!isShuffling && ts.shoeAlreadyReset) {
+        ts.shoeAlreadyReset = false;
+      }
       // ── Verify deduced outcomes match server statistics history ──
       if (ts.deducedBeadRoad && ts.deducedBeadRoad.length > 0 && table.statistics && table.statistics.length > 0) {
         let mismatchFound = false;
@@ -314,7 +320,11 @@ class TableStateManager {
       let reason = "";
 
       if (isShuffling) {
-        if (!wasShuffling || ts.remaining !== 416 || ts.lastErrorResetReason !== null) {
+        // Only reset once per shuffling period. The old check `ts.remaining !== 416`
+        // caused infinite reset loops: async reconciliation would recover R1 cards
+        // (modifying remaining), then the next tick would see remaining !== 416 and
+        // reset again, wiping the recovered data in an endless cycle.
+        if (!ts.shoeAlreadyReset) {
           triggerReset = true;
           reason = "Shuffling state detected";
         }
@@ -332,6 +342,7 @@ class TableStateManager {
           isActualShuffle: true,
           finalRound: ts.lastRound
         });
+        ts.shoeAlreadyReset = true;
         ts.lastState = newState;
         ts.lastRound = 0; // Prevent second trigger when newRound transitions to 1 in the next tick
         continue;
