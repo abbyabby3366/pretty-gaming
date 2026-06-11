@@ -89,6 +89,16 @@ async function checkAndReconcileTables(filteredTables, dynamicConfig) {
     const ts = stateManager.getTable(table.tableName);
     if (!ts) continue;
 
+    // Skip reconciliation if table is currently shuffling
+    const isShuffling = table.state && table.state.toLowerCase().includes("shuff");
+    if (isShuffling) continue;
+
+    // Skip reconciliation if a shoe reset is pending (e.g. round decreased)
+    if (ts.consecutiveResetTicks > 0) continue;
+
+    // Skip reconciliation if statistics are from a previous shoe (out of sync)
+    if (table.round && table.statistics && table.statistics.length > table.round) continue;
+
     const stats = table.statistics || [];
 
     for (let r = 1; r <= stats.length; r++) {
@@ -158,6 +168,10 @@ async function checkAndReconcileTables(filteredTables, dynamicConfig) {
             const timestamp = new Date().toISOString().replace(/:/g, "-").split(".")[0];
             const allScrapedTables = filteredTables.map(t => t.tableName);
             writeStateJson(filteredTables, timestamp, [], allScrapedTables, ignoredTables, dynamicConfig);
+          } else {
+            // Verification failed — peer likely returned cards from a different shoe.
+            // Cache to avoid retrying every tick.
+            reconcileNegativeCache.set(key, { expiry: Date.now() + NEGATIVE_CACHE_NOT_FOUND_MS });
           }
         } else {
           // Not found or error — add to negative cache
