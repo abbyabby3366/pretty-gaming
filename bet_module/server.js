@@ -153,6 +153,118 @@ async function updateBalance() {
   }
 }
 
+async function getBetSummaryToday() {
+  if (isBrowserReady && browserPage) {
+    try {
+      const evaluatePromise = browserPage.evaluate(async () => {
+        const API_BASE = "https://member-api.aghippo168.com";
+
+        function getAuthToken() {
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            const val = localStorage.getItem(key);
+            if (key.toLowerCase().includes('token') && val) return val.replace(/^Bearer\s+/i, '');
+            if (val && val.startsWith('eyJ') && val.split('.').length === 3) return val;
+          }
+          for (let i = 0; i < sessionStorage.length; i++) {
+            const key = sessionStorage.key(i);
+            const val = sessionStorage.getItem(key);
+            if (key.toLowerCase().includes('token') && val) return val.replace(/^Bearer\s+/i, '');
+            if (val && val.startsWith('eyJ') && val.split('.').length === 3) return val;
+          }
+          const cookieMatch = document.cookie.match(/token=([^;]+)/i);
+          if (cookieMatch) return decodeURIComponent(cookieMatch[1]);
+          return null;
+        }
+
+        const token = getAuthToken();
+        if (!token) {
+          throw new Error("Authorization token not found.");
+        }
+
+        const headers = {
+          "Content-Type": "application/json",
+          "authorization": token
+        };
+
+        // Calculate dates and timezone info
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        
+        const queryStart = `${yyyy}-${mm}-${dd} 00:00:00`;
+        const queryEnd = `${yyyy}-${mm}-${dd} 23:59:59`;
+
+        const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone || "Unknown Zone";
+        const tzOffset = now.toTimeString().split(' ')[1] || "";
+
+        // 1. FETCH BALANCE
+        let balance = "Unknown";
+        let currency = "THB";
+        try {
+          const profile = await fetch(`${API_BASE}/apiRoute/member/profile`, {
+            method: "POST",
+            headers: headers,
+            body: JSON.stringify({ lang: "en" })
+          }).then(r => r.json());
+
+          if (profile && profile._id) {
+            const balanceInfo = await fetch(`${API_BASE}/apiRoute/member/viewBalance/${profile._id}`, {
+              method: "GET",
+              headers: headers
+            }).then(r => r.json());
+            if (balanceInfo && typeof balanceInfo.balance !== 'undefined') {
+              currency = profile.currency && profile.currency[0] ? profile.currency[0] : "THB";
+              balance = balanceInfo.balance;
+            }
+          }
+        } catch (e) {
+          console.error("Balance fetch error:", e.message);
+        }
+
+        // 2. FETCH BET SUMMARY
+        const response = await fetch(`${API_BASE}/apiRoute/transaction/myBet2`, {
+          method: "POST",
+          headers: headers,
+          body: JSON.stringify({
+            startDate: queryStart,
+            endDate: queryEnd,
+            type: "All",
+            limit: 100,
+            page: 1
+          })
+        }).then(r => r.json());
+
+        if (response.code !== 0) {
+          throw new Error(response.msg || `Server error ${response.code}`);
+        }
+
+        const summaries = response.data?.summaries || { turnOver: 0, totalBet: 0, winLose: 0 };
+        const results = response.data?.result || [];
+
+        return {
+          balance,
+          currency,
+          queryStart,
+          queryEnd,
+          tzName,
+          tzOffset,
+          summaries,
+          results
+        };
+      });
+
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 10000));
+      return await Promise.race([evaluatePromise, timeoutPromise]);
+    } catch (e) {
+      throw e;
+    }
+  } else {
+    throw new Error("Browser not ready");
+  }
+}
+
 async function runBetPG() {
   while (true) {
     if (betQueue.length > 0) {
@@ -255,6 +367,22 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ ok: true, status: "queued", betId: payload.id || payload.uuid }));
     } catch (e) {
       res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: e.message }));
+    }
+    return;
+  }
+
+  if (req.method === "GET" && req.url === "/prettygaming/bet-summary") {
+    try {
+      if (!isBrowserReady) {
+        res.writeHead(503, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ ok: false, error: "Browser not ready" }));
+      }
+      const summary = await getBetSummaryToday();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, summary }));
+    } catch (e) {
+      res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: false, error: e.message }));
     }
     return;

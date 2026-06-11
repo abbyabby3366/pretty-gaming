@@ -9,6 +9,7 @@ const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017";
 const MONGODB_NAME = process.env.MONGODB_NAME || "neuron_baccarat";
 let dbCollection = null;
 let dbCollectionShuffles = null;
+let dbCollectionSnapshots = null;
 
 let betConfig = {
   mode: 'round_robin',
@@ -221,6 +222,7 @@ async function updateSuccessRatesQuick() {
 const activeModules = new Map(); // moduleId -> { moduleId, baseUrl, lastHeartbeat, label, isBusy, busySince }
 const cumulativeProfitMap = {}; // keyed by moduleId (stable)
 const todayProfitMap = {};       // keyed by moduleId (stable)
+let snapshotAutoEnabled = true;  // toggle for hourly auto-snapshots
 const STALE_THRESHOLD_MS = 12000;
 
 // Periodically purge stale modules and send WhatsApp alerts
@@ -491,6 +493,102 @@ function parseJSONBody(req) {
   });
 }
 
+async function takeHourlySnapshot(isManual = false) {
+  console.log(`[Snapshot] Running ${isManual ? 'manual' : 'hourly'} snapshot...`);
+  if (!dbCollectionSnapshots) {
+    console.error(`[Snapshot] dbCollectionSnapshots not initialized yet.`);
+    return;
+  }
+
+  for (const [id, m] of activeModules) {
+    try {
+      const response = await fetch(`${m.baseUrl}/prettygaming/bet-summary`, {
+        method: "GET",
+        signal: AbortSignal.timeout(15000)
+      });
+      if (!response.ok) {
+        console.error(`[Snapshot] Bet module ${id} returned status ${response.status}`);
+        continue;
+      }
+      const data = await response.json();
+      if (!data.ok || !data.summary) {
+        console.error(`[Snapshot] Bet module ${id} response error:`, data.error || "no summary");
+        continue;
+      }
+
+      const sum = data.summary;
+      const summaries = sum.summaries || { turnOver: 0, totalBet: 0, winLose: 0 };
+
+      const parseLocalToUTC = (localStr, tzOffset) => {
+        const cleanOffset = tzOffset.replace("GMT", "").trim();
+        let formattedOffset = "+00:00";
+        if (cleanOffset.startsWith("+") || cleanOffset.startsWith("-")) {
+          formattedOffset = cleanOffset.length === 5 
+            ? `${cleanOffset.slice(0, 3)}:${cleanOffset.slice(3)}` 
+            : cleanOffset;
+        } else if (cleanOffset.match(/^\d{4}$/)) {
+          formattedOffset = `+${cleanOffset.slice(0, 2)}:${cleanOffset.slice(2)}`;
+        }
+        return new Date(localStr.replace(" ", "T") + formattedOffset);
+      };
+
+      const actualStart = parseLocalToUTC(sum.queryStart, sum.tzOffset);
+      const actualEnd = parseLocalToUTC(sum.queryEnd, sum.tzOffset);
+
+      let dbBets = [];
+      if (dbCollection) {
+        const label = (m.accounts && m.accounts[0] && m.accounts[0].label) || m.label || m.moduleId;
+        dbBets = await dbCollection.find({
+          $or: [
+            { targetModuleId: m.moduleId },
+            { targetModule: label },
+            { targetModule: m.label }
+          ],
+          time: {
+            $gte: actualStart.toISOString(),
+            $lte: actualEnd.toISOString()
+          },
+          outcome: { $in: ["SUCCESS", "WRONG_AMOUNT"] }
+        }).toArray();
+      }
+
+      let dbEffTurnover = 0;
+      let dbWinLose = 0;
+      for (const b of dbBets) {
+        const amt = parseFloat(b.actualBetAmount || 0);
+        dbWinLose += parseFloat(b.profit || 0);
+        // Effective turnover excludes ties (same logic as stats effTurnover)
+        if (b.roundOutcome !== "T") {
+          dbEffTurnover += amt;
+        }
+      }
+
+      const now = new Date();
+      const cleanBalance = parseFloat(String(sum.balance).replace(/[^0-9.-]/g, '')) || 0;
+
+      const snapshot = {
+        timestamp: now.toISOString(),
+        hour: now.getHours(),
+        minute: now.getMinutes(),
+        manual: isManual,
+        dateStr: now.toISOString().split("T")[0],
+        moduleId: m.moduleId,
+        label: (m.accounts && m.accounts[0] && m.accounts[0].label) || m.label || m.moduleId,
+        actualBalance: cleanBalance,
+        actualTurnover: parseFloat(summaries.turnOver || 0),
+        actualWinLose: parseFloat(summaries.winLose || 0),
+        dbEffTurnover: dbEffTurnover,
+        dbWinLose: dbWinLose
+      };
+
+      await dbCollectionSnapshots.insertOne(snapshot);
+      console.log(`[Snapshot] Saved ${isManual ? 'manual' : 'hourly'} snapshot for ${snapshot.label}: Balance=${snapshot.actualBalance}, ActualTurnover=${snapshot.actualTurnover}, DBEffTurnover=${snapshot.dbEffTurnover}`);
+    } catch (err) {
+      console.error(`[Snapshot] Error during snapshot run for module ${id}:`, err.message);
+    }
+  }
+}
+
 function startDashboard(stateManager) {
   _stateManager = stateManager;
 
@@ -502,6 +600,7 @@ function startDashboard(stateManager) {
       const db = client.db(MONGODB_NAME);
       dbCollection = db.collection("PRETTYGAMING_BETS");
       dbCollectionShuffles = db.collection("PRETTYGAMING_SHUFFLES");
+      dbCollectionSnapshots = db.collection("PRETTYGAMING_SNAPSHOTS");
 
       const recentBets = await dbCollection.find().sort({ time: -1 }).limit(MAX_BET_LOG).toArray();
       for (const b of recentBets) {
@@ -1133,6 +1232,126 @@ function startDashboard(stateManager) {
     }
 
 
+    if (req.method === "GET" && req.url.startsWith("/api/bet-summary")) {
+      const url = new URL(req.url, `http://localhost:${PORT}`);
+      const targetModuleId = url.searchParams.get("moduleId");
+
+      try {
+        const modulesToQuery = [];
+        for (const [id, m] of activeModules) {
+          if (!targetModuleId || id === targetModuleId) {
+            modulesToQuery.push(m);
+          }
+        }
+
+        if (modulesToQuery.length === 0) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true, results: [] }));
+          return;
+        }
+
+        const results = await Promise.all(
+          modulesToQuery.map(async (m) => {
+            try {
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 10000);
+              const response = await fetch(`${m.baseUrl}/prettygaming/bet-summary`, {
+                method: "GET",
+                signal: controller.signal
+              });
+              clearTimeout(timeoutId);
+              if (!response.ok) {
+                throw new Error(`Module responded with status ${response.status}`);
+              }
+              const data = await response.json();
+              return {
+                moduleId: m.moduleId,
+                label: (m.accounts && m.accounts[0] && m.accounts[0].label) || m.label || m.moduleId,
+                ok: data.ok,
+                summary: data.summary,
+                error: data.error
+              };
+            } catch (err) {
+              return {
+                moduleId: m.moduleId,
+                label: (m.accounts && m.accounts[0] && m.accounts[0].label) || m.label || m.moduleId,
+                ok: false,
+                error: err.message
+              };
+            }
+          })
+        );
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, results }));
+      } catch (e) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+      return;
+    }
+
+    if (req.method === "GET" && req.url.startsWith("/api/snapshots")) {
+      try {
+        if (!dbCollectionSnapshots) throw new Error("DB not connected yet");
+
+        const now = new Date();
+        const todayStr = now.toISOString().split("T")[0];
+
+        const snapshots = await dbCollectionSnapshots.find({ dateStr: todayStr }).sort({ timestamp: 1 }).toArray();
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, snapshots }));
+      } catch (e) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+      return;
+    }
+
+    // Take a snapshot on demand
+    if (req.method === "POST" && req.url === "/api/take-snapshot") {
+      try {
+        if (!dbCollectionSnapshots) throw new Error("DB not connected yet");
+        await takeHourlySnapshot(true);
+        const now = new Date();
+        const todayStr = now.toISOString().split("T")[0];
+        const snapshots = await dbCollectionSnapshots.find({ dateStr: todayStr }).sort({ timestamp: 1 }).toArray();
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, snapshots }));
+      } catch (e) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+      return;
+    }
+
+    // Get / toggle auto-snapshot
+    if (req.url === "/api/snapshot-auto") {
+      if (req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, enabled: snapshotAutoEnabled }));
+        return;
+      }
+      if (req.method === "POST") {
+        let body = "";
+        req.on("data", chunk => body += chunk);
+        req.on("end", () => {
+          try {
+            const parsed = JSON.parse(body);
+            snapshotAutoEnabled = !!parsed.enabled;
+            console.log(`[Snapshot] Auto-snapshot ${snapshotAutoEnabled ? 'ENABLED' : 'DISABLED'}`);
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: true, enabled: snapshotAutoEnabled }));
+          } catch (e) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: false, error: e.message }));
+          }
+        });
+        return;
+      }
+    }
+
     if (req.method === "GET" && req.url.startsWith("/api/stats")) {
       try {
         const url = new URL(req.url, `http://localhost:${PORT}`);
@@ -1345,6 +1564,8 @@ function startDashboard(stateManager) {
       filePath = path.join(__dirname, "bets.html");
     } else if (req.url === "/stats.html" || req.url === "/stats") {
       filePath = path.join(__dirname, "stats.html");
+    } else if (req.url === "/summary.html" || req.url === "/summary") {
+      filePath = path.join(__dirname, "summary.html");
     } else if (req.url.startsWith("/tables_state.json")) {
       if (latestTablesState) {
         res.writeHead(200, {
@@ -1384,6 +1605,25 @@ function startDashboard(stateManager) {
 
   server.listen(PORT, () => {
     console.log(`Dashboard → http://localhost:${PORT}`);
+
+    // Start hourly snapshot automation (respects snapshotAutoEnabled toggle)
+    // Delay first run slightly to let DB connect
+    setTimeout(() => {
+      if (snapshotAutoEnabled) takeHourlySnapshot().catch(console.error);
+    }, 5000);
+
+    // Schedule snapshot to run at the top of every hour
+    const msToNextHour = (60 - new Date().getMinutes()) * 60 * 1000 - new Date().getSeconds() * 1000;
+    setTimeout(() => {
+      if (snapshotAutoEnabled) takeHourlySnapshot().catch(console.error);
+      setInterval(() => {
+        if (snapshotAutoEnabled) {
+          takeHourlySnapshot().catch(console.error);
+        } else {
+          console.log('[Snapshot] Skipping hourly snapshot (auto-snapshot disabled)');
+        }
+      }, 60 * 60 * 1000);
+    }, msToNextHour);
   });
 }
 
