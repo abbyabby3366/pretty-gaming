@@ -818,6 +818,7 @@ function startDashboard(stateManager) {
   }
 
   async function reportStatsToCentral() {
+    if (process.env.DISABLE_TELEMETRY === "TRUE" || process.env.DISABLE_TELEMETRY === "true") return;
     if (!dbCollection) return;
 
     try {
