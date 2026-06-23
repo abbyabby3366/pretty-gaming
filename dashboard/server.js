@@ -18,6 +18,7 @@ let betConfig = {
   kellyFraction: 1.0,
   flatRatio: 0.01,
   rounding: 10,
+  minBet: 0,
   maxBet: 500,
   autoBetEnabled: true,
   minAccountBalance: 1000
@@ -1078,6 +1079,7 @@ function startDashboard(stateManager) {
           }
 
           if (betConfig.rounding > 0) amount = Math.round(amount / betConfig.rounding) * betConfig.rounding;
+          if (betConfig.minBet > 0 && amount < betConfig.minBet) amount = betConfig.minBet;
           if (amount > betConfig.maxBet) amount = betConfig.maxBet;
           if (amount < betConfig.rounding && amount > 0) amount = betConfig.rounding;
           recommendedBetAmount = amount;

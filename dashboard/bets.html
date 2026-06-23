@@ -362,8 +362,9 @@
            document.getElementById('cfg-bankroll').value = data.config.startingBankroll;
            document.getElementById('cfg-kelly').value = data.config.kellyFraction;
            document.getElementById('cfg-flat').value = data.config.flatRatio ?? 0.01;
-           document.getElementById('cfg-rounding').value = data.config.rounding;
-           document.getElementById('cfg-maxbet').value = data.config.maxBet;
+            document.getElementById('cfg-rounding').value = data.config.rounding;
+            document.getElementById('cfg-minbet').value = data.config.minBet ?? 0;
+            document.getElementById('cfg-maxbet').value = data.config.maxBet;
            document.getElementById('cfg-min-balance').value = data.config.minAccountBalance ?? 1000;
            updateMethodVisibility();
            document.getElementById('settings-modal').style.display = 'flex';
@@ -403,8 +404,9 @@
          startingBankroll: parseFloat(document.getElementById('cfg-bankroll').value) || 1000,
          kellyFraction: parseFloat(document.getElementById('cfg-kelly').value) || 1.0,
          flatRatio: parseFloat(document.getElementById('cfg-flat').value) || 0.01,
-         rounding: parseInt(document.getElementById('cfg-rounding').value) || 10,
-         maxBet: parseInt(document.getElementById('cfg-maxbet').value) || 500,
+          rounding: parseInt(document.getElementById('cfg-rounding').value) || 10,
+          minBet: parseInt(document.getElementById('cfg-minbet').value) || 0,
+          maxBet: parseInt(document.getElementById('cfg-maxbet').value) || 500,
          minAccountBalance: parseFloat(document.getElementById('cfg-min-balance').value) || 0
       };
       try {
@@ -670,9 +672,15 @@
         <label>Rounding (e.g. 10 to round to nearest $10)</label>
         <input type="number" id="cfg-rounding" />
       </div>
-      <div class="form-group">
-        <label>Max Bet Limit</label>
-        <input type="number" id="cfg-maxbet" />
+      <div style="display: flex; gap: 10px;">
+        <div class="form-group" style="flex: 1; margin-bottom: 12px;">
+          <label>Min Bet Limit</label>
+          <input type="number" id="cfg-minbet" />
+        </div>
+        <div class="form-group" style="flex: 1; margin-bottom: 12px;">
+          <label>Max Bet Limit</label>
+          <input type="number" id="cfg-maxbet" />
+        </div>
       </div>
       <div class="form-group" id="group-min-balance">
         <label>Min Account Balance (Round Robin)</label>
