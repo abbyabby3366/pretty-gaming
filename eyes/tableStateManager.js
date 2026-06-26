@@ -280,7 +280,7 @@ class TableStateManager {
           const msg = `[WARNING] ${ts.tableName} Bead Road Discrepancy! ${mismatchDetails}`;
           if (!isSpam) {
             console.log(`\x1b[31m${msg}\x1b[0m`);
-            sendWhatsAppNotification(msg).catch(err => console.error("WhatsApp Notification failed:", err));
+            // sendWhatsAppNotification(msg).catch(err => console.error("WhatsApp Notification failed:", err));
             if (this.lastResetNotificationTime) {
               this.lastResetNotificationTime.set(rateLimitKey, now);
             }
@@ -362,7 +362,7 @@ class TableStateManager {
 
           if (!isSpam) {
             console.log(`\x1b[31m${msg}\x1b[0m`);
-            sendWhatsAppNotification(msg).catch(err => console.error("WhatsApp Notification failed:", err));
+            // sendWhatsAppNotification(msg).catch(err => console.error("WhatsApp Notification failed:", err));
             if (this.lastResetNotificationTime) {
               this.lastResetNotificationTime.set(rateLimitKey, now);
             }
@@ -525,7 +525,7 @@ class TableStateManager {
     
     if (reason.startsWith('Invalid state')) {
       if (!isSpam) {
-        sendWhatsAppNotification(msg).catch(err => console.error("WhatsApp Notification failed:", err));
+        // sendWhatsAppNotification(msg).catch(err => console.error("WhatsApp Notification failed:", err));
         if (this.lastResetNotificationTime) {
           this.lastResetNotificationTime.set(rateLimitKey, now);
         }

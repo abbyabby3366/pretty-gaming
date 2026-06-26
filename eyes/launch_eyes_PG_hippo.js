@@ -60,7 +60,7 @@ const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
           isRestarting = true;
 
           console.log(`\x1b[33m[Session Restart] ${elapsedMin.toFixed(1)} mins elapsed for ${acctConfig.label}. Initiating restart sequence...\x1b[0m`);
-          sendWhatsAppNotification(`[Session Restart] ${elapsedMin.toFixed(1)} mins elapsed for ${acctConfig.label}. Initiating restart sequence...`).catch(err => console.error("WhatsApp notification failed:", err.message));
+          // sendWhatsAppNotification(`[Session Restart] ${elapsedMin.toFixed(1)} mins elapsed for ${acctConfig.label}. Initiating restart sequence...`).catch(err => console.error("WhatsApp notification failed:", err.message));
 
           if (acctConfig.platform === "hippo" || acctConfig.platform === "directurl" || acctConfig.platform === "direct_url") {
             console.log(`[Session Restart] Performing SEAMLESS restart for Hippo... Preparing new page in background.`);
