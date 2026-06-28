@@ -84,6 +84,9 @@ function buildAccountConfig(accountIndex = 0, accountsFilePath, modulePrefix = "
   const basePort = 9222;
   const profileIndex = account.profileIndex ?? baseProfileIndex + accountIndex;
   const port = account.debuggingPort ?? basePort + accountIndex;
+  
+  const rawProxy = account.proxy || {};
+  const useProxy = account.useProxy !== undefined ? account.useProxy : !!rawProxy.server;
 
   return {
     accountIndex,
@@ -91,6 +94,8 @@ function buildAccountConfig(accountIndex = 0, accountsFilePath, modulePrefix = "
     label: account.label || `Account ${accountIndex}`,
     platform,
     launchMethod,
+    useProxy,
+    proxy: useProxy ? rawProxy : {},
     enableDomCleanup: account.enableDomCleanup ?? false,
     sessionRestartMinutes: account.sessionRestartMinutes || 0,
     chrome: {
@@ -229,8 +234,15 @@ async function evaluateState(browser, urls) {
 
 
 async function launchAccount(acctConfig) {
-  const { chrome, credentials, urls, platform, launchMethod, modulePrefix } = acctConfig;
+  const { chrome, credentials, urls, platform, launchMethod, modulePrefix, useProxy, proxy } = acctConfig;
   const logger = { log: (msg) => console.log(`[${acctConfig.label}] ${msg}`), warn: (msg) => console.warn(`[${acctConfig.label}] ${msg}`), error: (msg) => console.error(`[${acctConfig.label}] ${msg}`) };
+
+  async function applyProxyAuth(p) {
+    if (proxy && proxy.server && proxy.username && proxy.password) {
+      logger.log("Refreshing proxy authentication...");
+      await p.authenticate({ username: proxy.username, password: proxy.password }).catch((e) => logger.warn(`Proxy auth failed: ${e.message}`));
+    }
+  }
 
   const prefix = modulePrefix || "BET";
 
@@ -239,17 +251,132 @@ async function launchAccount(acctConfig) {
   }
 
   let browser;
-  if (launchMethod === "puppeteer") {
+  if (launchMethod === "kameleo") {
+    logger.log("Launching via Kameleo Local API...");
+    const { KameleoLocalApiClient } = require('@kameleo/local-api-client');
+    const kameleoUrl = process.env.KAMELEO_API_URL || 'http://localhost:5050';
+    const client = new KameleoLocalApiClient({ basePath: kameleoUrl });
+    try {
+      logger.log("Cleaning up any stale Kameleo profiles from previous runs...");
+      try {
+        const existingProfiles = await client.profile.listProfiles();
+        for (const p of existingProfiles) {
+          if (p.name && p.name.startsWith(`Bet-${acctConfig.label}`)) {
+            logger.log(`Stopping and deleting stale profile: ${p.name} (${p.id})`);
+            await client.profile.stopProfile(p.id).catch(() => {});
+            await client.profile.deleteProfile(p.id).catch(() => {});
+          }
+        }
+      } catch (cleanupErr) {
+        logger.warn(`Stale profile cleanup warning: ${cleanupErr.message}`);
+      }
+
+      logger.log("Searching for a Windows desktop Chrome fingerprint in Kameleo...");
+      const fingerprints = await client.fingerprint.searchFingerprints('desktop', 'windows', 'chrome');
+      if (!fingerprints || fingerprints.length === 0) {
+        throw new Error("No matching Windows desktop Chrome fingerprints found in Kameleo.");
+      }
+
+      const selectedFingerprint = fingerprints[0];
+      logger.log(`Selected fingerprint: ${selectedFingerprint.id} (${selectedFingerprint.os} - Chrome ${selectedFingerprint.browser.version})`);
+
+      let proxyConfig = undefined;
+      if (useProxy && proxy && proxy.server) {
+        logger.log(`Configuring Kameleo profile with proxy: ${proxy.server}`);
+        const url = require('url');
+        const parsed = url.parse(proxy.server);
+        const protocol = (parsed.protocol || 'http').replace(':', '');
+        const host = parsed.hostname || '127.0.0.1';
+        const port = parseInt(parsed.port, 10) || 80;
+
+        proxyConfig = {
+          value: protocol.startsWith('socks') ? 'socks5' : 'http',
+          extra: {
+            host: host,
+            port: port,
+            id: proxy.username || undefined,
+            secret: proxy.password || undefined
+          }
+        };
+      }
+
+      logger.log("Creating new transient Kameleo profile...");
+      const profile = await client.profile.createProfile({
+        fingerprintId: selectedFingerprint.id,
+        name: `Bet-${acctConfig.label}-${Date.now()}`,
+        proxy: proxyConfig
+      });
+
+      const profileId = profile.id;
+      logger.log(`Kameleo profile created: ${profileId}`);
+
+      logger.log("Starting Kameleo profile...");
+      const windowSizeRaw = process.env[`${prefix}_WINDOW_SIZE`] || process.env.CHROME_WINDOW_SIZE || "900,1400";
+      const windowPositionRaw = process.env[`${prefix}_WINDOW_POSITION`] || process.env.CHROME_WINDOW_POSITION || "100,50";
+
+      const sizeParts = windowSizeRaw.split(',').map(x => parseInt(x.trim(), 10));
+      let width = sizeParts[0] || 900;
+      let height = sizeParts[1] || 1400;
+      width += Math.floor(Math.random() * 31) - 15;
+      height += Math.floor(Math.random() * 31) - 15;
+
+      const posParts = windowPositionRaw.split(',').map(x => parseInt(x.trim(), 10));
+      let posX = posParts[0] || 100;
+      let posY = posParts[1] || 50;
+      posX += Math.floor(Math.random() * 21) - 10;
+      posY += Math.floor(Math.random() * 21) - 10;
+
+      const launchArgs = [
+        `window-size=${width},${height}`,
+        `window-position=${posX},${posY}`
+      ];
+      await client.profile.startProfile(profileId, { arguments: launchArgs });
+
+      const wsUrl = `${kameleoUrl.replace(/^http/, 'ws')}/puppeteer/${profileId}`;
+      logger.log(`Connecting Puppeteer to websocket: ${wsUrl}`);
+      browser = await puppeteer.connect({
+        browserWSEndpoint: wsUrl,
+        defaultViewport: null
+      });
+      logger.log("Connected to Kameleo browser instance.");
+
+      browser.on('disconnected', async () => {
+        logger.log(`Browser disconnected. Stopping and deleting Kameleo profile: ${profileId}`);
+        try {
+          await client.profile.stopProfile(profileId).catch(() => {});
+          await client.profile.deleteProfile(profileId).catch(() => {});
+          logger.log(`Kameleo profile ${profileId} cleaned up successfully.`);
+        } catch (err) {
+          logger.error(`Error cleaning up Kameleo profile ${profileId}: ${err.message}`);
+        }
+      });
+
+    } catch (err) {
+      logger.error(`Failed to launch via Kameleo: ${err.message}`);
+      throw err;
+    }
+  } else if (launchMethod === "puppeteer") {
       logger.log("Launching fresh browser via native Puppeteer...");
+      const puppeteerArgs = [
+        `--window-size=${process.env[`${prefix}_WINDOW_SIZE`] || process.env.CHROME_WINDOW_SIZE || "900,1400"}`,
+        `--window-position=${process.env[`${prefix}_WINDOW_POSITION`] || process.env.CHROME_WINDOW_POSITION || "100,50"}`,
+        ...chrome.extraArgs
+      ];
+      if (proxy && proxy.server) {
+        let formattedProxy = proxy.server;
+        if (formattedProxy.includes(":") && formattedProxy.split(":").length > 2 && !formattedProxy.startsWith("[")) {
+          const lastColon = formattedProxy.lastIndexOf(":");
+          const host = formattedProxy.substring(0, lastColon);
+          const portPart = formattedProxy.substring(lastColon);
+          if (/^:\d+$/.test(portPart)) formattedProxy = `[${host}]${portPart}`;
+        }
+        puppeteerArgs.push(`--proxy-server=${formattedProxy}`);
+      }
       browser = await puppeteer.launch({
           headless: false,
           defaultViewport: null,
           protocolTimeout: 30000,
-          args: [
-            `--window-size=${process.env[`${prefix}_WINDOW_SIZE`] || process.env.CHROME_WINDOW_SIZE || "900,1400"}`,
-            `--window-position=${process.env[`${prefix}_WINDOW_POSITION`] || process.env.CHROME_WINDOW_POSITION || "100,50"}`,
-            ...chrome.extraArgs
-          ],
+          args: puppeteerArgs,
       });
   } else {
       try {
@@ -257,38 +384,46 @@ async function launchAccount(acctConfig) {
         browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${chrome.remoteDebuggingPort}`, defaultViewport: null });
         logger.log("Connected to existing Chrome instance.");
       } catch (e) {
-    logger.log("Chrome not found on debugging port. Spawning new instance...");
-    
-    // Clean up stale lock file from previous force-killed sessions
-    try {
-      const lockFile = require("path").join(chrome.userDataDir, "lockfile");
-      if (require("fs").existsSync(lockFile)) {
-        require("fs").unlinkSync(lockFile);
-        logger.log("Removed stale Chrome lock file.");
-      }
-    } catch (e) {}
-    
-    const chromeArgs = [
-      `--remote-debugging-port=${chrome.remoteDebuggingPort}`,
-      `--user-data-dir=${chrome.userDataDir}`,
-      "--no-first-run", "--no-default-browser-check", "--mute-audio",
-      `--window-size=${process.env[`${prefix}_WINDOW_SIZE`] || process.env.CHROME_WINDOW_SIZE || "900,1400"}`,
-      `--window-position=${process.env[`${prefix}_WINDOW_POSITION`] || process.env.CHROME_WINDOW_POSITION || "100,50"}`,
-      ...chrome.extraArgs,
-    ];
-    const chromeProcess = spawn(chrome.executablePath, chromeArgs, { detached: true, stdio: "ignore" });
-    chromeProcess.unref();
-    
-    // Progressive backoff to wait for Chrome to start
-    let connected = false;
-    for (let attempt = 1; attempt <= 5; attempt++) {
-        await sleep(2000 * attempt);
+        logger.log("Chrome not found on debugging port. Spawning new instance...");
+        
         try {
-            browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${chrome.remoteDebuggingPort}`, defaultViewport: null });
-            connected = true;
-            break;
-        } catch (err) {}
-    }
+          const lockFile = require("path").join(chrome.userDataDir, "lockfile");
+          if (require("fs").existsSync(lockFile)) {
+            require("fs").unlinkSync(lockFile);
+            logger.log("Removed stale Chrome lock file.");
+          }
+        } catch (e) {}
+        
+        const chromeArgs = [
+          `--remote-debugging-port=${chrome.remoteDebuggingPort}`,
+          `--user-data-dir=${chrome.userDataDir}`,
+          "--no-first-run", "--no-default-browser-check", "--mute-audio",
+          `--window-size=${process.env[`${prefix}_WINDOW_SIZE`] || process.env.CHROME_WINDOW_SIZE || "900,1400"}`,
+          `--window-position=${process.env[`${prefix}_WINDOW_POSITION`] || process.env.CHROME_WINDOW_POSITION || "100,50"}`,
+          ...chrome.extraArgs,
+        ];
+        if (proxy && proxy.server) {
+          let formattedProxy = proxy.server;
+          if (formattedProxy.includes(":") && formattedProxy.split(":").length > 2 && !formattedProxy.startsWith("[")) {
+            const lastColon = formattedProxy.lastIndexOf(":");
+            const host = formattedProxy.substring(0, lastColon);
+            const portPart = formattedProxy.substring(lastColon);
+            if (/^:\d+$/.test(portPart)) formattedProxy = `[${host}]${portPart}`;
+          }
+          chromeArgs.push(`--proxy-server=${formattedProxy}`);
+        }
+        const chromeProcess = spawn(chrome.executablePath, chromeArgs, { detached: true, stdio: "ignore" });
+        chromeProcess.unref();
+        
+        let connected = false;
+        for (let attempt = 1; attempt <= 5; attempt++) {
+            await sleep(2000 * attempt);
+            try {
+                browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${chrome.remoteDebuggingPort}`, defaultViewport: null });
+                connected = true;
+                break;
+            } catch (err) {}
+        }
         if (!connected) throw new Error("Failed to connect to newly spawned Chrome instance.");
       }
   }
@@ -332,6 +467,7 @@ async function launchAccount(acctConfig) {
         logger.log(`Executing state: ${currentState}`);
         
         if (currentState === STATES.UNINITIALIZED) {
+          await applyProxyAuth(page);
           logger.log("Navigating to winbox88my6...");
           await page.goto(urls.login, { waitUntil: "domcontentloaded", timeout: TIMEOUTS.navigationWait }).catch(() => {});
           logger.log("Waiting for login form to load...");
@@ -344,6 +480,7 @@ async function launchAccount(acctConfig) {
           }
         } else if (currentState === STATES.WINBOX_LOGIN) {
           logger.log("Handling WINBOX_LOGIN...");
+          await applyProxyAuth(page);
           for (const frame of page.frames()) {
             if (!isRelevantFrame(frame)) continue;
             try {
@@ -455,6 +592,7 @@ async function launchAccount(acctConfig) {
         currentState = nextStateResult.state;
         if (nextStateResult.page && page !== nextStateResult.page) {
           page = nextStateResult.page;
+          await applyProxyAuth(page);
         }
       }
       
