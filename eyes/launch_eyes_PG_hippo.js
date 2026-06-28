@@ -67,7 +67,7 @@ const { launchAccount, buildAccountConfig } = require("../utils/launch_pg");
             try {
               if (browserContext) {
                 const newPage = await browserContext.newPage();
-                await newPage.goto("https://d3jai9eacl1740.cloudfront.net/lobby/multiplay", { waitUntil: "networkidle2", timeout: 30000 }).catch(() => {});
+                await newPage.goto("https://d3jai9eacl1740.cloudfront.net/lobby/multiplay", { timeout: 30000 }).catch(() => {});
                 
                 const { checkPGpage } = require("../utils/check_page_pg");
                 await checkPGpage(newPage, { log: console.log, warn: console.warn, error: console.error });

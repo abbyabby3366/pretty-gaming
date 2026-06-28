@@ -192,7 +192,7 @@ async function evaluateState(browser, urls) {
           }
 
           await sleep(1000);
-          await p.reload({ waitUntil: "networkidle2", timeout: 30000 }).catch(() => {});
+          p.reload({ timeout: 30000 }).catch(() => {});
           await sleep(2000);
           continue; // Re-evaluate this page's state after reload
         }
@@ -440,7 +440,7 @@ async function launchAccount(acctConfig) {
         logger.log("Browser is already on the Hippo multiplay page. Skipping navigation to avoid disrupting active session.");
       } else {
         logger.log("Navigating to Hippo multiplay lobby...");
-        await page.goto("https://d3jai9eacl1740.cloudfront.net/lobby/multiplay", { waitUntil: "networkidle2", timeout: TIMEOUTS.navigationWait }).catch(() => {});
+        await page.goto("https://d3jai9eacl1740.cloudfront.net/lobby/multiplay", { timeout: TIMEOUTS.navigationWait }).catch(() => {});
       }
       
       await checkPGpage(page, logger);
