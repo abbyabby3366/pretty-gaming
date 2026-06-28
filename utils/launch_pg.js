@@ -42,6 +42,29 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function isRelevantFrame(frame) {
+  const url = frame.url() || "";
+  if (frame === frame.page().mainFrame()) return true;
+  if (url.includes("filesusr.com") || url.includes("about:blank")) return false;
+  if (url.includes("wbwin") || url.includes("winbox") || url.includes("winboxmalay")) return true;
+  return false;
+}
+
+async function waitForSelectorInAnyFrame(page, selector, timeoutMs = 30000) {
+  const startTime = Date.now();
+  while (Date.now() - startTime < timeoutMs) {
+    for (const frame of page.frames()) {
+      if (!isRelevantFrame(frame)) continue;
+      try {
+        const el = await frame.$(selector);
+        if (el) return frame;
+      } catch (e) {}
+    }
+    await sleep(500);
+  }
+  throw new Error(`Selector "${selector}" not found in any frame within ${timeoutMs}ms`);
+}
+
 function buildAccountConfig(accountIndex = 0, accountsFilePath, modulePrefix = "") {
   const accountsFile = accountsFilePath || path.resolve(__dirname, "..", "bet_module", "json", "bet_accounts.json");
   
@@ -112,6 +135,7 @@ async function evaluateState(browser, urls) {
       let sessionBox = null;
       let boxText = "";
       for (const frame of p.frames()) {
+        if (!isRelevantFrame(frame)) continue;
         sessionBox = await frame.$(".el-message-box").catch(() => null);
         if (sessionBox) {
           boxText = await frame
@@ -144,6 +168,7 @@ async function evaluateState(browser, urls) {
           // Strategy 2: Try frame-level selector fallback
           if (!dismissed) {
             for (const frame of p.frames()) {
+              if (!isRelevantFrame(frame)) continue;
               try {
                 const clicked = await frame.evaluate(() => {
                   const btn =
@@ -177,6 +202,7 @@ async function evaluateState(browser, urls) {
       let isLogin = false;
 
       for (const frame of p.frames()) {
+        if (!isRelevantFrame(frame)) continue;
         try {
           if (await frame.$(SELECTORS.myNav).catch(() => null)) isDashboard = true;
           if (await frame.$(SELECTORS.uid).catch(() => null) ||
@@ -307,11 +333,19 @@ async function launchAccount(acctConfig) {
         
         if (currentState === STATES.UNINITIALIZED) {
           logger.log("Navigating to winbox88my6...");
-          await page.goto(urls.login, { waitUntil: "networkidle2", timeout: TIMEOUTS.navigationWait }).catch(() => {});
-          await sleep(1500);
+          await page.goto(urls.login, { waitUntil: "domcontentloaded", timeout: TIMEOUTS.navigationWait }).catch(() => {});
+          logger.log("Waiting for login form to load...");
+          try {
+            await waitForSelectorInAnyFrame(page, SELECTORS.uid, TIMEOUTS.selectorWait);
+            logger.log("Login form detected. Waiting 3 seconds to settle...");
+            await sleep(3000);
+          } catch (err) {
+            logger.error(`Login form failed to load: ${err.message}`);
+          }
         } else if (currentState === STATES.WINBOX_LOGIN) {
           logger.log("Handling WINBOX_LOGIN...");
           for (const frame of page.frames()) {
+            if (!isRelevantFrame(frame)) continue;
             try {
               const popupBtns = await frame.$$(SELECTORS.loginPopup);
               for (const btn of popupBtns) {
@@ -323,7 +357,10 @@ async function launchAccount(acctConfig) {
           }
           
           let loginFrame = page;
-          for (const frame of page.frames()) if (await frame.$(SELECTORS.uid).catch(()=>null)) { loginFrame = frame; break; }
+          for (const frame of page.frames()) {
+            if (!isRelevantFrame(frame)) continue;
+            if (await frame.$(SELECTORS.uid).catch(()=>null)) { loginFrame = frame; break; }
+          }
           
           await loginFrame.$eval(SELECTORS.uid, el => el.value = "").catch(() => {});
           await loginFrame.type(SELECTORS.uid, credentials.email, { delay: 10 });
