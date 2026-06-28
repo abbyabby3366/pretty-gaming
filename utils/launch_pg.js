@@ -80,7 +80,7 @@ function buildAccountConfig(accountIndex = 0, accountsFilePath, modulePrefix = "
     },
     credentials: account.credentials || {},
     urls: {
-      login: "https://login.winboxmalay.com/",
+      login: "https://www.winbox88my6.com/login",
       pgLobby: ["hippo168.com", "cloudfront.net"] // Supports both direct URL and Winbox CloudFront redirect
     },
   };
@@ -306,7 +306,7 @@ async function launchAccount(acctConfig) {
         logger.log(`Executing state: ${currentState}`);
         
         if (currentState === STATES.UNINITIALIZED) {
-          logger.log("Navigating to winboxmalay...");
+          logger.log("Navigating to winbox88my6...");
           await page.goto(urls.login, { waitUntil: "networkidle2", timeout: TIMEOUTS.navigationWait }).catch(() => {});
           await sleep(1500);
         } else if (currentState === STATES.WINBOX_LOGIN) {
