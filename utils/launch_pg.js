@@ -34,7 +34,7 @@ const SELECTORS = {
 const TIMEOUTS = {
   dashboardWait: 3000,
   navigationWait: 30000,
-  selectorWait: 10000,
+  selectorWait: 15000,
   tabWait: 30000,
 };
 
@@ -43,26 +43,106 @@ function sleep(ms) {
 }
 
 function isRelevantFrame(frame) {
-  const url = frame.url() || "";
+  const url = (frame.url() || "").toLowerCase();
   if (frame === frame.page().mainFrame()) return true;
-  if (url.includes("filesusr.com") || url.includes("about:blank")) return false;
-  if (url.includes("wbwin") || url.includes("winbox") || url.includes("winboxmalay")) return true;
-  return false;
+  if (url.includes("filesusr.com") || url.includes("about:blank") || url.includes("wixstatic.com")) return false;
+  return true;
+}
+
+async function callWithTimeout(promise, timeoutMs = 3000, defaultValue = null) {
+  let timer;
+  const timeoutPromise = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(defaultValue), timeoutMs);
+  });
+  return Promise.race([
+    promise.then((res) => {
+      clearTimeout(timer);
+      return res;
+    }).catch(() => {
+      clearTimeout(timer);
+      return defaultValue;
+    }),
+    timeoutPromise
+  ]);
 }
 
 async function waitForSelectorInAnyFrame(page, selector, timeoutMs = 30000) {
   const startTime = Date.now();
+  let lastLogTime = 0;
   while (Date.now() - startTime < timeoutMs) {
-    for (const frame of page.frames()) {
+    const frames = page.frames();
+    for (const frame of frames) {
       if (!isRelevantFrame(frame)) continue;
       try {
-        const el = await frame.$(selector);
+        const el = await callWithTimeout(frame.$(selector), 2000, null);
         if (el) return frame;
       } catch (e) {}
     }
+    
+    // Log frame URLs periodically (every 5 seconds) to help diagnose loading issues
+    if (Date.now() - startTime > 5000 && Date.now() - lastLogTime > 5000) {
+      lastLogTime = Date.now();
+      const urls = frames.map(f => {
+        try {
+          return `${f.url() || "empty"} (relevant: ${isRelevantFrame(f)})`;
+        } catch (e) {
+          return "error getting url";
+        }
+      });
+      console.log(`[Diagnostic] Waiting for selector "${selector}". Current frames:\n - ${urls.join("\n - ")}`);
+    }
+    
     await sleep(500);
   }
   throw new Error(`Selector "${selector}" not found in any frame within ${timeoutMs}ms`);
+}
+
+async function waitForAnySelectorInAnyFrame(page, selectorsList, timeoutMs = 30000, options = {}) {
+  const startTime = Date.now();
+  const list = Array.isArray(selectorsList) ? selectorsList : [selectorsList];
+  let lastLogTime = 0;
+  while (Date.now() - startTime < timeoutMs) {
+    const frames = page.frames();
+    for (const frame of frames) {
+      if (!isRelevantFrame(frame)) continue;
+      for (const selector of list) {
+        try {
+          const el = await callWithTimeout(frame.$(selector), 2000, null);
+          if (el) {
+            if (options.visible) {
+              const isVisible = await callWithTimeout(
+                frame.evaluate((element) => {
+                  if (!element) return false;
+                  const style = window.getComputedStyle(element);
+                  return style && style.display !== 'none' && style.visibility !== 'hidden' && element.offsetWidth > 0 && element.offsetHeight > 0;
+                }, el),
+                2000,
+                false
+              );
+              if (!isVisible) continue;
+            }
+            return { frame, selector };
+          }
+        } catch (e) {}
+      }
+    }
+
+    // Log frame URLs periodically (every 5 seconds) to help diagnose loading issues
+    if (Date.now() - startTime > 5000 && Date.now() - lastLogTime > 5000) {
+      lastLogTime = Date.now();
+      const urls = frames.map(f => {
+        try {
+          return `${f.url() || "empty"} (relevant: ${isRelevantFrame(f)})`;
+        } catch (e) {
+          return "error getting url";
+        }
+      });
+      console.log(`[Diagnostic] Waiting for selectors [${list.join(", ")}]. Current frames:\n - ${urls.join("\n - ")}`);
+    }
+
+    await sleep(500);
+  }
+  throw new Error(`None of the selectors [${list.join(", ")}] found/visible in any frame within ${timeoutMs}ms`);
 }
 
 function buildAccountConfig(accountIndex = 0, accountsFilePath, modulePrefix = "") {
@@ -141,11 +221,9 @@ async function evaluateState(browser, urls) {
       let boxText = "";
       for (const frame of p.frames()) {
         if (!isRelevantFrame(frame)) continue;
-        sessionBox = await frame.$(".el-message-box").catch(() => null);
+        sessionBox = await callWithTimeout(frame.$(".el-message-box"), 2000, null);
         if (sessionBox) {
-          boxText = await frame
-            .evaluate((el) => el.innerText, sessionBox)
-            .catch(() => "");
+          boxText = await callWithTimeout(frame.evaluate((el) => el.innerText, sessionBox), 2000, "");
           break;
         }
       }
@@ -162,9 +240,7 @@ async function evaluateState(browser, urls) {
 
           // Strategy 1: Click OK button via child selector
           let dismissed = false;
-          const okBtn = await sessionBox
-            .$(".el-message-box__btns button")
-            .catch(() => null);
+          const okBtn = await callWithTimeout(sessionBox.$(".el-message-box__btns button"), 2000, null);
           if (okBtn) {
             await okBtn.click().catch(() => {});
             dismissed = true;
@@ -175,25 +251,34 @@ async function evaluateState(browser, urls) {
             for (const frame of p.frames()) {
               if (!isRelevantFrame(frame)) continue;
               try {
-                const clicked = await frame.evaluate(() => {
-                  const btn =
-                    document.querySelector(".el-message-box__btns button") ||
-                    document.querySelector(".el-message-box__btns .el-button--primary");
-                  if (btn) { btn.click(); return true; }
-                  const allBtns = document.querySelectorAll(".el-message-box button");
-                  for (const b of allBtns) {
-                    if (/OK|Confirm/i.test(b.textContent)) { b.click(); return true; }
-                  }
-                  return false;
-                });
+                const clicked = await callWithTimeout(
+                  frame.evaluate(() => {
+                    const btn =
+                      document.querySelector(".el-message-box__btns button") ||
+                      document.querySelector(".el-message-box__btns .el-button--primary");
+                    if (btn) { btn.click(); return true; }
+                    const allBtns = document.querySelectorAll(".el-message-box button");
+                    for (const b of allBtns) {
+                      if (/OK|Confirm/i.test(b.textContent)) { b.click(); return true; }
+                    }
+                    return false;
+                  }),
+                  2000,
+                  false
+                );
                 if (clicked) { dismissed = true; break; }
               } catch (e) {}
             }
           }
 
           await sleep(1000);
-          p.reload({ timeout: 30000 }).catch(() => {});
-          await sleep(2000);
+          await p.reload({ timeout: 30000 }).catch(() => {});
+          try {
+            await waitForAnySelectorInAnyFrame(p, [SELECTORS.myNav, SELECTORS.uid], 15000, { visible: true });
+          } catch (e) {
+            console.log(`[evaluateState] After reload, neither dashboard nor login form became visible: ${e.message}`);
+          }
+          await sleep(3000);
           continue; // Re-evaluate this page's state after reload
         }
       }
@@ -209,9 +294,9 @@ async function evaluateState(browser, urls) {
       for (const frame of p.frames()) {
         if (!isRelevantFrame(frame)) continue;
         try {
-          if (await frame.$(SELECTORS.myNav).catch(() => null)) isDashboard = true;
-          if (await frame.$(SELECTORS.uid).catch(() => null) ||
-              await frame.$$(SELECTORS.loginPopup).then(el => el.length > 0).catch(() => false)) isLogin = true;
+          if (await callWithTimeout(frame.$(SELECTORS.myNav), 2000, null)) isDashboard = true;
+          if (await callWithTimeout(frame.$(SELECTORS.uid), 2000, null) ||
+              await callWithTimeout(frame.$$(SELECTORS.loginPopup), 2000, []).then(el => el && el.length > 0)) isLogin = true;
         } catch (e) {}
       }
 
@@ -484,9 +569,9 @@ async function launchAccount(acctConfig) {
           for (const frame of page.frames()) {
             if (!isRelevantFrame(frame)) continue;
             try {
-              const popupBtns = await frame.$$(SELECTORS.loginPopup);
+              const popupBtns = await callWithTimeout(frame.$$(SELECTORS.loginPopup), 2000, []);
               for (const btn of popupBtns) {
-                if ((await frame.evaluate(el => el.textContent, btn)).includes("Log In")) {
+                if ((await callWithTimeout(frame.evaluate(el => el.textContent, btn), 2000, "")).includes("Log In")) {
                   await btn.click(); await sleep(500); break;
                 }
               }
@@ -496,7 +581,7 @@ async function launchAccount(acctConfig) {
           let loginFrame = page;
           for (const frame of page.frames()) {
             if (!isRelevantFrame(frame)) continue;
-            if (await frame.$(SELECTORS.uid).catch(()=>null)) { loginFrame = frame; break; }
+            if (await callWithTimeout(frame.$(SELECTORS.uid), 2000, null)) { loginFrame = frame; break; }
           }
           
           await loginFrame.$eval(SELECTORS.uid, el => el.value = "").catch(() => {});
@@ -511,21 +596,32 @@ async function launchAccount(acctConfig) {
               await button.click(); break;
             }
           }
-          logger.log("Login submitted. Waiting for dashboard...");
+          logger.log("Login submitted. Waiting for dashboard or OTP verification...");
           writeLoginTimestamp(acctConfig.label);
-          await sleep(TIMEOUTS.dashboardWait);
+          try {
+            const matched = await waitForAnySelectorInAnyFrame(
+              page,
+              [SELECTORS.myNav, '.EmailVerificationRoot', '.el-message--error', '.el-message-box'],
+              20000,
+              { visible: true }
+            );
+            logger.log(`Detected post-login element: "${matched.selector}"`);
+          } catch (err) {
+            logger.warn(`Timeout waiting for dashboard/OTP/error message after login: ${err.message}`);
+          }
+          await sleep(3000);
         } else if (currentState === STATES.WINBOX_DASHBOARD) {
           logger.log("Handling WINBOX_DASHBOARD...");
           
           let dialogHandled = false;
           for (const frame of page.frames()) {
             try {
-              const buttons = await frame.$$("button");
+              const buttons = await callWithTimeout(frame.$$("button"), 3000, []);
               let action = null;
               let matchedButton = null;
   
               for (const button of buttons) {
-                const text = await frame.evaluate((el) => el.textContent, button);
+                const text = await callWithTimeout(frame.evaluate((el) => el.textContent, button), 2000, "");
                 if (text.trim().includes("Quit Game")) {
                   matchedButton = button;
                   action = "quit";
@@ -567,10 +663,10 @@ async function launchAccount(acctConfig) {
             // Find and click the Pretty Gaming icon
             for (const frame of page.frames()) {
               try {
-                const pgIcon = await frame.$(SELECTORS.prettyGamingIcon);
+                const pgIcon = await callWithTimeout(frame.$(SELECTORS.prettyGamingIcon), 2000, null);
                 if (pgIcon) {
                   logger.log("Found Pretty Gaming icon. Clicking...");
-                  await pgIcon.click();
+                  await callWithTimeout(frame.evaluate(el => el.click(), pgIcon), 5000).catch(() => {});
                   gameClicked = true;
                   break;
                 }
