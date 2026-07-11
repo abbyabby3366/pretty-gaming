@@ -241,6 +241,30 @@ class TableStateManager {
       const wasShuffling = prevState && prevState.toLowerCase().includes("shuff");
       let newRound = table.round;
 
+      // ── Prune future rounds from deduced bead road (safety net for stale state/restored sessions) ──
+      if (newRound > 0 && ts.deducedBeadRoad && ts.deducedBeadRoad.length > 0) {
+        const initialLen = ts.deducedBeadRoad.length;
+        ts.deducedBeadRoad = ts.deducedBeadRoad.filter(item => item && item.round < newRound);
+        if (ts.deducedBeadRoad.length !== initialLen) {
+          console.log(`\x1b[33m[SHOE] ${name}: Cleared future rounds from deduced bead road (R >= ${newRound})\x1b[0m`);
+          ts.lastFinalizedRound = ts.deducedBeadRoad.length > 0 
+            ? Math.max(...ts.deducedBeadRoad.map(i => i.round)) 
+            : 0;
+
+          // Rebuild deck composition from remaining valid history
+          ts.deckComposition = freshShoe();
+          for (const item of ts.deducedBeadRoad) {
+            const allCards = [...(item.playerCards || []), ...(item.bankerCards || [])];
+            for (const card of allCards) {
+              const idx = cardRankToIndex(card);
+              if (idx >= 0 && ts.deckComposition[idx] > 0) {
+                ts.deckComposition[idx]--;
+              }
+            }
+          }
+        }
+      }
+
       // If a new shoe has officially started (round 1), clear the deduced bead road
       if (newRound === 1 && ts.lastRound !== 1) {
         ts.deducedBeadRoad = [];
