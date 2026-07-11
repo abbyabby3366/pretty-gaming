@@ -603,6 +603,11 @@ function startDashboard(stateManager) {
       dbCollectionShuffles = db.collection("PRETTYGAMING_SHUFFLES");
       dbCollectionSnapshots = db.collection("PRETTYGAMING_SNAPSHOTS");
 
+      // Ensure indexes for efficient aggregation & querying
+      dbCollection.createIndex({ outcome: 1, time: 1 }).catch(() => {});
+      dbCollection.createIndex({ targetModule: 1 }).catch(() => {});
+      dbCollection.createIndex({ targetModuleId: 1 }).catch(() => {});
+
       const recentBets = await dbCollection.find().sort({ time: -1 }).limit(MAX_BET_LOG).toArray();
       for (const b of recentBets) {
         // If a bet was queued or pending when the server died/restarted, it's stale now.
@@ -726,46 +731,72 @@ function startDashboard(stateManager) {
       }
     }
 
-    const matchQ = { outcome: { $in: ["SUCCESS", "WRONG_AMOUNT"] } };
+    const matchStage = { outcome: { $in: ["SUCCESS", "WRONG_AMOUNT"] } };
     if (startStr || endStr) {
-      matchQ.time = {};
-      if (startStr) matchQ.time.$gte = startStr;
-      if (endStr) matchQ.time.$lt = endStr;
+      matchStage.time = {};
+      if (startStr) matchStage.time.$gte = startStr;
+      if (endStr) matchStage.time.$lt = endStr;
     }
 
-    const bets = await dbCollection.find(matchQ).toArray();
+    const projectStage = {
+      modLabel: { $ifNull: ["$targetModule", { $ifNull: ["$targetModuleId", "UNKNOWN"] }] },
+      amt: {
+        $convert: {
+          input: "$actualBetAmount",
+          to: "double",
+          onError: null,
+          onNull: null
+        }
+      },
+      profit: { $ifNull: ["$profit", 0] },
+      ev: { $ifNull: ["$ev", 0] },
+      roundOutcome: 1
+    };
+
+    const aggResult = await dbCollection.aggregate([
+      { $match: matchStage },
+      { $project: projectStage },
+      { $match: { amt: { $ne: null } } },
+      {
+        $group: {
+          _id: "$modLabel",
+          betCount: { $sum: 1 },
+          pnl: { $sum: "$profit" },
+          turnover: { $sum: "$amt" },
+          effTurnover: {
+            $sum: {
+              $cond: { if: { $ne: ["$roundOutcome", "T"] }, then: "$amt", else: 0 }
+            }
+          },
+          expValue: {
+            $sum: {
+              $cond: { if: { $ne: ["$roundOutcome", "T"] }, then: { $multiply: ["$ev", "$amt"] }, else: 0 }
+            }
+          }
+        }
+      }
+    ]).toArray();
 
     const statsMap = {};
     let totalStats = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, betCount: 0 };
 
-    for (const b of bets) {
-      const modId = b.targetModuleId || b.targetModule || "UNKNOWN";
-      const modLabel = b.targetModule || modId;
-      if (!statsMap[modLabel]) statsMap[modLabel] = { pnl: 0, turnover: 0, effTurnover: 0, expValue: 0, bal: 0, displayLabel: modLabel, betCount: 0 };
+    for (const r of aggResult) {
+      const modLabel = r._id;
+      statsMap[modLabel] = {
+        pnl: r.pnl,
+        turnover: r.turnover,
+        effTurnover: r.effTurnover,
+        expValue: r.expValue,
+        bal: 0,
+        displayLabel: modLabel,
+        betCount: r.betCount
+      };
 
-      let amt = parseFloat(b.actualBetAmount);
-      if (isNaN(amt)) continue;
-
-      statsMap[modLabel].betCount += 1;
-      totalStats.betCount += 1;
-
-      const profit = b.profit || 0;
-      const ev = b.ev || 0;
-
-      statsMap[modLabel].pnl += profit;
-      totalStats.pnl += profit;
-
-      statsMap[modLabel].turnover += amt;
-      totalStats.turnover += amt;
-
-      if (b.roundOutcome !== "T") {
-        statsMap[modLabel].effTurnover += amt;
-        totalStats.effTurnover += amt;
-
-        const evAmt = ev * amt;
-        statsMap[modLabel].expValue += evAmt;
-        totalStats.expValue += evAmt;
-      }
+      totalStats.pnl += r.pnl;
+      totalStats.turnover += r.turnover;
+      totalStats.effTurnover += r.effTurnover;
+      totalStats.expValue += r.expValue;
+      totalStats.betCount += r.betCount;
     }
 
     for (const m of activeModules.values()) {
@@ -818,9 +849,12 @@ function startDashboard(stateManager) {
     return { ok: true, stats: result, dateInfo };
   }
 
+  let isReportingStats = false;
   async function reportStatsToCentral() {
     if (process.env.DISABLE_TELEMETRY === "TRUE" || process.env.DISABLE_TELEMETRY === "true") return;
     if (!dbCollection) return;
+    if (isReportingStats) return;
+    isReportingStats = true;
 
     try {
       await updateSuccessRatesQuick();
@@ -870,7 +904,10 @@ function startDashboard(stateManager) {
 
       req.write(payload);
       req.end();
-    }).catch(() => { });
+    }).catch(() => { })
+      .finally(() => {
+        isReportingStats = false;
+      });
   }
 
   // Ping every 10 seconds
@@ -889,7 +926,14 @@ function startDashboard(stateManager) {
           return;
         }
         const round = parseInt(roundStr, 10);
-        
+
+        // 1. Check local state json first
+        const localMatch = getRoundCardsFromStateJson(tableName, round);
+        if (localMatch && localMatch.playerCards && localMatch.bankerCards) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true, cards: localMatch }));
+          return;
+        }
 
         // 2. Query peer if configured
         const peerUrl = process.env.PEER_CENTRAL_URL;
