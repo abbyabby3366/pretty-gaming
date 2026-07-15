@@ -60,7 +60,7 @@ function calculateEV(composition, config = {}) {
 
     // EV on effective turnover basis (tie = push)
     const evPlayerBase = (pp - pb) / nonTie;
-    const evBankerBase = (pb * 0.95 - pp) / nonTie;
+    const evBankerBase = (pb * 0.95 - pp) / (pb * 0.95 + pp);
     const evTieBase = pt * 8.0 - (1.0 - pt);
 
     // With rebate applied

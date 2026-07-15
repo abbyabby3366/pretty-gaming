@@ -223,7 +223,7 @@ fn run_analyzer(rng: &mut Lcg) {
             }
 
             let ev_player = (pp - pb) / non_tie;
-            let ev_banker = (pb * 0.95 - pp) / non_tie;
+            let ev_banker = (pb * 0.95 - pp) / (pb * 0.95 + pp);
 
             bk_sum += ev_banker;
             bk_sum_sq += ev_banker * ev_banker;
@@ -482,7 +482,7 @@ fn run_betting_simulation(rng: &mut Lcg) {
             }
 
             let ev_player_base = (pp - pb) / non_tie;
-            let ev_banker_base = (pb * 0.95 - pp) / non_tie;
+            let ev_banker_base = (pb * 0.95 - pp) / (pb * 0.95 + pp);
 
             let ev_player_adj = ev_player_base + REBATE_RATE;
             let ev_banker_adj = ev_banker_base + REBATE_RATE;
@@ -521,10 +521,11 @@ fn run_betting_simulation(rng: &mut Lcg) {
                 if bet_size <= 0.0 {
                     chosen_bet = None;
                 } else {
-                    shoe_expected_ev += bet_size * best_ev * non_tie;
+                    let expected_eff_to_fraction = if chosen_bet == Some(Outcome::Banker) { pb * 0.95 + pp } else { pp + pb };
+                    shoe_expected_ev += bet_size * best_ev * expected_eff_to_fraction;
                     
                     let base_ev = if chosen_bet == Some(Outcome::Player) { ev_player_base } else { ev_banker_base };
-                    shoe_expected_base_ev += bet_size * base_ev * non_tie;
+                    shoe_expected_base_ev += bet_size * base_ev * expected_eff_to_fraction;
                     
                     if chosen_bet == Some(Outcome::Banker) { shoe_banker_bets += 1; }
                     else if chosen_bet == Some(Outcome::Player) { shoe_player_bets += 1; }
@@ -539,9 +540,11 @@ fn run_betting_simulation(rng: &mut Lcg) {
                 shoe_turnover += bet_size;
 
                 if outcome != Outcome::Tie {
-                    shoe_effective_turnover += bet_size;
+                    let is_banker_win = outcome == Outcome::Banker && target == Outcome::Banker;
+                    let actual_eff_turnover = if is_banker_win { bet_size * 0.95 } else { bet_size };
+                    shoe_effective_turnover += actual_eff_turnover;
                     
-                    let rebate = bet_size * REBATE_RATE;
+                    let rebate = actual_eff_turnover * REBATE_RATE;
                     shoe_rebate_earned += rebate;
                     shoe_bankroll += rebate;
 

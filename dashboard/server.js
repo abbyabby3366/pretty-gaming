@@ -559,8 +559,11 @@ async function takeHourlySnapshot(isManual = false) {
         const amt = parseFloat(b.actualBetAmount || 0);
         dbWinLose += parseFloat(b.profit || 0);
         // Effective turnover excludes ties (same logic as stats effTurnover)
-        if (b.roundOutcome !== "T") {
-          dbEffTurnover += amt;
+        const isTiePush = (b.roundOutcome === "T" && !(b.target || "").includes("Tie"));
+        if (!isTiePush) {
+          const isBankerWin = (b.roundOutcome === "B" && (b.target || "").includes("Banker"));
+          const actualEffTurnover = isBankerWin ? amt * 0.95 : amt;
+          dbEffTurnover += actualEffTurnover;
         }
       }
 
@@ -750,7 +753,20 @@ function startDashboard(stateManager) {
       },
       profit: { $ifNull: ["$profit", 0] },
       ev: { $ifNull: ["$ev", 0] },
-      roundOutcome: 1
+      roundOutcome: 1,
+      target: 1,
+      isTiePush: {
+        $and: [
+          { $eq: ["$roundOutcome", "T"] },
+          { $not: { $regexMatch: { input: { $ifNull: ["$target", ""] }, regex: "Tie", options: "i" } } }
+        ]
+      },
+      isBankerWin: {
+        $and: [
+          { $eq: ["$roundOutcome", "B"] },
+          { $regexMatch: { input: { $ifNull: ["$target", ""] }, regex: "Banker", options: "i" } }
+        ]
+      }
     };
 
     const aggResult = await dbCollection.aggregate([
@@ -765,12 +781,20 @@ function startDashboard(stateManager) {
           turnover: { $sum: "$amt" },
           effTurnover: {
             $sum: {
-              $cond: { if: { $ne: ["$roundOutcome", "T"] }, then: "$amt", else: 0 }
+              $cond: ["$isTiePush", 0, { $cond: ["$isBankerWin", { $multiply: ["$amt", 0.95] }, "$amt"] }]
             }
           },
           expValue: {
             $sum: {
-              $cond: { if: { $ne: ["$roundOutcome", "T"] }, then: { $multiply: ["$ev", "$amt"] }, else: 0 }
+              $cond: [
+                "$isTiePush",
+                0,
+                { $cond: [
+                  "$isBankerWin",
+                  { $multiply: ["$ev", "$amt", 0.95] },
+                  { $multiply: ["$ev", "$amt"] }
+                ] }
+              ]
             }
           }
         }
