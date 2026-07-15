@@ -1162,20 +1162,23 @@
       try {
         const res = await fetch('/api/config');
         if (res.ok) {
-          const config = await res.json();
-          if (config.startingBankroll) document.getElementById('bankroll').value = config.startingBankroll;
-          if (config.method) { document.getElementById('method').value = config.method; toggleMethodInputs(); }
-          if (config.flatRatio) document.getElementById('flatRatio').value = config.flatRatio;
-          if (config.kellyFraction) document.getElementById('kellyFraction').value = config.kellyFraction;
-          if (config.minBet !== undefined) document.getElementById('minBet').value = config.minBet;
-          if (config.maxBet) document.getElementById('maxBet').value = config.maxBet;
-          if (config.rounding) document.getElementById('rounding').value = config.rounding;
-          if (config.rebateRate) document.getElementById('rebateRate').value = config.rebateRate;
-          if (config.minEvThreshold) {
-            document.getElementById('minEv').value = config.minEvThreshold;
-          }
-          if (config.maxEvThreshold) {
-            document.getElementById('maxEv').value = config.maxEvThreshold;
+          const data = await res.json();
+          if (data.ok && data.config) {
+            const config = data.config;
+            if (config.startingBankroll) document.getElementById('bankroll').value = config.startingBankroll;
+            if (config.method) { document.getElementById('method').value = config.method; toggleMethodInputs(); }
+            if (config.flatRatio) document.getElementById('flatRatio').value = config.flatRatio;
+            if (config.kellyFraction) document.getElementById('kellyFraction').value = config.kellyFraction;
+            if (config.minBet !== undefined) document.getElementById('minBet').value = config.minBet;
+            if (config.maxBet) document.getElementById('maxBet').value = config.maxBet;
+            if (config.rounding) document.getElementById('rounding').value = config.rounding;
+            if (config.rebateRate) document.getElementById('rebateRate').value = config.rebateRate;
+            if (config.minEvThreshold) {
+              document.getElementById('minEv').value = config.minEvThreshold;
+            }
+            if (config.maxEvThreshold) {
+              document.getElementById('maxEv').value = config.maxEvThreshold;
+            }
           }
         }
       } catch (e) { console.error("Failed to load live settings config:", e.message); }
