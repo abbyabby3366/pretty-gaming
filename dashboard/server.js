@@ -4,6 +4,7 @@ const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 const { MongoClient } = require("mongodb");
 const { sendWhatsAppNotification } = require("../utils/whatsapp_notifier");
+const { runBacktest } = require("./backtestEngine");
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017";
 const MONGODB_NAME = process.env.MONGODB_NAME || "neuron_baccarat";
@@ -1483,6 +1484,123 @@ function startDashboard(stateManager) {
       return;
     }
 
+    // === Server-side Backtest Simulation ===
+    if (req.method === "POST" && req.url.startsWith("/api/run-backtest")) {
+      try {
+        if (!dbCollection) throw new Error("DB not connected yet");
+        const params = await parseJSONBody(req);
+        const result = await runBacktest(dbCollection, params);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, ...result }));
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: err.message }));
+      }
+      return;
+    }
+
+    if (req.method === "GET" && req.url.startsWith("/api/bets-hypothesis-data")) {
+      try {
+        const url = new URL(req.url, `http://localhost:${PORT}`);
+        const range = url.searchParams.get("range") || "all_time";
+        const from = url.searchParams.get("from");
+        const to = url.searchParams.get("to");
+
+        if (!dbCollection) {
+          throw new Error("DB not connected yet");
+        }
+
+        let startStr = null;
+        let endStr = null;
+
+        if (range === "custom") {
+          if (from) {
+            startStr = new Date(from).toISOString();
+          }
+          if (to) {
+            endStr = new Date(to).toISOString();
+          }
+        } else if (range !== "all_time") {
+          const now = new Date();
+          const formatter = new Intl.DateTimeFormat("en-US", {
+            timeZone: "Asia/Kuala_Lumpur",
+            year: "numeric",
+            month: "numeric",
+            day: "numeric",
+            hour: "numeric",
+            minute: "numeric",
+            second: "numeric",
+            hour12: false
+          });
+          const parts = formatter.formatToParts(now);
+          const partMap = Object.fromEntries(parts.map(p => [p.type, p.value]));
+          const myYear = parseInt(partMap.year);
+          const myMonth = parseInt(partMap.month) - 1;
+          const myDay = parseInt(partMap.day);
+
+          const today12pmUTC = new Date(Date.UTC(myYear, myMonth, myDay, 4, 0, 0, 0));
+          let currentPeriodStart = today12pmUTC;
+          if (now < today12pmUTC) {
+            currentPeriodStart = new Date(today12pmUTC.getTime() - 24 * 60 * 60 * 1000);
+          }
+
+          let startDate = null;
+          let endDate = null;
+
+          if (range === "today") {
+            startDate = new Date(currentPeriodStart);
+            endDate = new Date(currentPeriodStart.getTime() + 24 * 60 * 60 * 1000);
+          } else if (range === "yesterday") {
+            startDate = new Date(currentPeriodStart.getTime() - 24 * 60 * 60 * 1000);
+            endDate = new Date(currentPeriodStart);
+          } else if (range === "last_7_days") {
+            startDate = new Date(currentPeriodStart.getTime() - 6 * 24 * 60 * 60 * 1000);
+            endDate = new Date(currentPeriodStart.getTime() + 24 * 60 * 60 * 1000);
+          }
+
+          if (startDate && endDate) {
+            startStr = startDate.toISOString();
+            endStr = endDate.toISOString();
+          }
+        }
+
+        const matchQ = {};
+        if (startStr || endStr) {
+          matchQ.time = {};
+          if (startStr) matchQ.time.$gte = startStr;
+          if (endStr) matchQ.time.$lt = endStr;
+        }
+
+        const bets = await dbCollection
+          .find(matchQ)
+          .project({
+            id: 1,
+            time: 1,
+            tableName: 1,
+            round: 1,
+            target: 1,
+            ev: 1,
+            outcome: 1,
+            recommendedBetAmount: 1,
+            actualBetAmount: 1,
+            roundOutcome: 1,
+            profit: 1,
+            "reasonState.mathematics.evSnapshot": 1,
+            "reasonState.metrics.deckRemaining": 1
+          })
+          .sort({ time: 1 })
+          .toArray();
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, bets }));
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: err.message }));
+      }
+      return;
+    }
+
+
     if (req.method === "GET" && req.url.startsWith("/api/bets")) {
       try {
         const url = new URL(req.url, `http://localhost:${PORT}`);
@@ -1630,6 +1748,8 @@ function startDashboard(stateManager) {
       filePath = path.join(__dirname, "stats.html");
     } else if (req.url === "/summary.html" || req.url === "/summary") {
       filePath = path.join(__dirname, "summary.html");
+    } else if (req.url === "/stats-hypothesis.html" || req.url === "/stats-hypothesis") {
+      filePath = path.join(__dirname, "stats_hypothesis.html");
     } else if (req.url.startsWith("/tables_state.json")) {
       if (latestTablesState) {
         res.writeHead(200, {

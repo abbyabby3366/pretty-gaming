@@ -1,0 +1,1532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PG Eyes - Stats Hypothesis Playground</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg:#0b0e14; --card:#12161f; --border:#1a1f2e;
+      --text:#c9d1d9; --dim:#5a6370;
+      --blue:#58a6ff; --green:#3fb950; --red:#f85149;
+      --yellow:#d29922; --cyan:#39c5cf; --purple:#a371f7; --orange:#f97316;
+      --card-gradient: linear-gradient(135deg, #12161f, #0d1117);
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family:'JetBrains Mono',monospace;
+      background:var(--bg);
+      color:var(--text);
+      font-size:11px;
+      display:flex;
+      flex-direction:column;
+      height:100vh;
+      overflow:hidden;
+    }
+
+    /* Top navbar */
+    .bar {
+      background:#0d1117;
+      border-bottom:1px solid var(--border);
+      padding:4px 8px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      flex-shrink:0;
+    }
+    .bar .title { font-size:11px; font-weight:600; color:var(--cyan); }
+    .bar a {
+      color:var(--dim);
+      text-decoration:none;
+      border:none;
+      padding:3px 8px;
+      border-radius:3px;
+      transition:0.2s;
+      font-size:10px;
+    }
+    .bar a:hover {
+      color:var(--text);
+      background:rgba(255, 255, 255, 0.05);
+    }
+    .bar a.active {
+      color:var(--cyan);
+      background:rgba(57,197,207,0.1);
+      font-weight:600;
+    }
+
+    /* Two-column layout */
+    .container {
+      flex:1;
+      display:grid;
+      grid-template-columns: 340px 1fr;
+      height:calc(100vh - 35px);
+      overflow:hidden;
+    }
+
+    /* Left Column - Controls Sidebar */
+    .sidebar {
+      background:#0a0c10;
+      border-right:1px solid var(--border);
+      padding:15px;
+      display:flex;
+      flex-direction:column;
+      gap:15px;
+      overflow-y:auto;
+    }
+    .section-title {
+      font-size:11px;
+      text-transform:uppercase;
+      color:var(--cyan);
+      border-bottom:1px solid var(--border);
+      padding-bottom:4px;
+      font-weight:600;
+      margin-bottom:8px;
+    }
+    .form-group {
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+      margin-bottom:8px;
+    }
+    .form-group label {
+      color:var(--dim);
+      font-size:10px;
+    }
+    .form-row {
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:8px;
+    }
+    input[type="number"], input[type="text"], select {
+      background:#161b22;
+      color:var(--text);
+      border:1px solid var(--border);
+      padding:5px 8px;
+      border-radius:4px;
+      font-family:inherit;
+      font-size:11px;
+      outline:none;
+      width:100%;
+    }
+    input[type="number"]:focus, input[type="text"]:focus, select:focus {
+      border-color:var(--cyan);
+    }
+    .checkbox-group {
+      display:flex;
+      align-items:center;
+      gap:8px;
+      margin:4px 0;
+    }
+    .checkbox-group input {
+      accent-color:var(--cyan);
+      cursor:pointer;
+    }
+
+    /* Range picker styling */
+    .date-presets {
+      display:flex;
+      flex-wrap:wrap;
+      gap:4px;
+      margin-bottom:8px;
+    }
+    .preset-btn {
+      background:#161b22;
+      color:var(--text);
+      border:1px solid var(--border);
+      padding:3px 6px;
+      border-radius:3px;
+      cursor:pointer;
+      font-size:10px;
+      font-family:inherit;
+      transition:0.2s;
+    }
+    .preset-btn.active {
+      border-color:var(--cyan);
+      color:var(--cyan);
+      background:rgba(57,197,207,0.1);
+    }
+    input[type="datetime-local"] {
+      background:#161b22;
+      color:var(--text);
+      border:1px solid var(--border);
+      padding:4px 6px;
+      border-radius:3px;
+      font-family:inherit;
+      font-size:10px;
+      width:100%;
+      outline:none;
+    }
+
+    .btn-run {
+      background:var(--cyan);
+      color:#0b0e14;
+      border:none;
+      padding:10px;
+      border-radius:4px;
+      font-weight:600;
+      cursor:pointer;
+      font-family:inherit;
+      text-transform:uppercase;
+      transition:0.2s;
+      margin-top:10px;
+    }
+    .btn-run:hover {
+      background:#4ce6f2;
+      box-shadow: 0 0 10px rgba(57,197,207,0.4);
+    }
+
+    /* Right Column - Results Area */
+    .results {
+      padding:20px;
+      display:flex;
+      flex-direction:column;
+      gap:20px;
+      overflow-y:auto;
+      background:var(--bg);
+    }
+
+    /* KPI Summary Cards */
+    .kpis {
+      display:grid;
+      grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+      gap:8px;
+    }
+    .card {
+      background:var(--card-gradient);
+      border:1px solid var(--border);
+      border-radius:6px;
+      padding:8px;
+      display:flex;
+      flex-direction:column;
+      justify-content:space-between;
+      position:relative;
+      overflow:hidden;
+    }
+    .card::before {
+      content:'';
+      position:absolute;
+      top:0; left:0; right:0; height:2px;
+      background:rgba(255,255,255,0.03);
+    }
+    .card.accent::before {
+      background:var(--cyan);
+    }
+    .card .label {
+      color:var(--dim);
+      font-size:8px;
+      text-transform:uppercase;
+      margin-bottom:3px;
+    }
+    .card .val {
+      font-size:13px;
+      font-weight:600;
+      color:var(--text);
+    }
+    .card .subtext {
+      font-size:8px;
+      color:var(--dim);
+      margin-top:3px;
+    }
+
+    /* Layout divisions */
+    .row-chart-table {
+      display:grid;
+      grid-template-columns: 1fr;
+      gap:20px;
+    }
+    
+    .chart-container {
+      background:#0d1117;
+      border:1px solid var(--border);
+      border-radius:6px;
+      padding:15px;
+      height:280px;
+      position:relative;
+    }
+
+    .table-container {
+      background:#0d1117;
+      border:1px solid var(--border);
+      border-radius:6px;
+      overflow:hidden;
+    }
+    .table-scroll {
+      max-height:400px;
+      overflow-y:auto;
+    }
+    table {
+      width:100%;
+      border-collapse:collapse;
+      text-align:left;
+      white-space:nowrap;
+    }
+    th, td {
+      padding:8px 10px;
+      border-bottom:1px solid rgba(255,255,255,0.04);
+    }
+    th {
+      background:#0a0c10;
+      color:var(--dim);
+      font-weight:600;
+      text-transform:uppercase;
+      position:sticky;
+      top:0;
+      z-index:5;
+    }
+    tr:hover {
+      background:rgba(255,255,255,0.02);
+    }
+
+    /* Log Tab Buttons */
+    .log-tabs {
+      display:flex;
+      gap:6px;
+      align-items:center;
+    }
+    .log-tab {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--dim);
+      font-family: inherit;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-transform: uppercase;
+    }
+    .log-tab:hover {
+      color: var(--text);
+      border-color: var(--dim);
+    }
+    .log-tab.active {
+      color: var(--cyan);
+      border-color: var(--cyan);
+      background: rgba(57, 197, 207, 0.05);
+    }
+
+    /* Multi-select dropdown container */
+    .multiselect-container {
+      position: relative;
+      width: 100%;
+    }
+    .multiselect-select-box {
+      position: relative;
+      cursor: pointer;
+      background: #161b22;
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 5px 8px;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 11px;
+      user-select: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .multiselect-select-box:after {
+      content: '▼';
+      font-size: 8px;
+      color: var(--dim);
+      margin-left: 8px;
+      transition: transform 0.2s;
+    }
+    .multiselect-container.open .multiselect-select-box:after {
+      transform: rotate(180deg);
+    }
+    .multiselect-options {
+      display: none;
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: #161b22;
+      border: 1px solid var(--border);
+      border-top: none;
+      border-radius: 0 0 4px 4px;
+      z-index: 100;
+      max-height: 200px;
+      overflow-y: auto;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    }
+    .multiselect-container.open .multiselect-options {
+      display: block;
+    }
+    .multiselect-option {
+      padding: 6px 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      user-select: none;
+      color: var(--text);
+      transition: background 0.15s;
+    }
+    .multiselect-option:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .multiselect-option input {
+      margin: 0;
+      cursor: pointer;
+      accent-color: var(--cyan);
+    }
+
+
+    /* Loading Overlay */
+    .sim-loader {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(11, 14, 20, 0.92);
+      backdrop-filter: blur(4px);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 50;
+      gap: 16px;
+    }
+    .sim-loader.hidden { display: none; }
+    .sim-loader .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid var(--border);
+      border-top-color: var(--cyan);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .sim-loader .loader-text {
+      color: var(--dim);
+      font-size: 11px;
+      text-align: center;
+    }
+    .sim-loader .loader-text span {
+      color: var(--cyan);
+      font-weight: 600;
+    }
+
+    /* Pagination */
+    .pagination {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+      padding: 8px;
+      background: #0a0c10;
+      border-top: 1px solid var(--border);
+    }
+    .pagination button {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--dim);
+      font-family: inherit;
+      font-size: 10px;
+      padding: 4px 10px;
+      border-radius: 3px;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+    .pagination button:hover:not(:disabled) {
+      color: var(--text);
+      border-color: var(--dim);
+    }
+    .pagination button:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+    .pagination .page-info {
+      color: var(--dim);
+      font-size: 10px;
+    }
+
+    /* Download button */
+    .btn-download {
+      background: transparent;
+      border: 1px solid var(--dim);
+      color: var(--dim);
+      font-family: inherit;
+      font-size: 9px;
+      padding: 3px 8px;
+      border-radius: 3px;
+      cursor: pointer;
+      transition: 0.2s;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    .btn-download:hover {
+      color: var(--green);
+      border-color: var(--green);
+    }
+
+    /* Modal System */
+    .modal-overlay {
+      position:fixed;
+      top:0; left:0; right:0; bottom:0;
+      background:rgba(0,0,0,0.8);
+      backdrop-filter:blur(3px);
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      z-index:1000;
+    }
+    .modal-overlay.hidden {
+      display:none;
+    }
+    .modal-box {
+      background:var(--card);
+      border:1px solid var(--border);
+      border-radius:6px;
+      padding:20px;
+      width:320px;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+      box-shadow:0 10px 30px rgba(0,0,0,0.6);
+    }
+    .modal-header {
+      font-size:11px;
+      font-weight:600;
+      color:var(--cyan);
+      text-transform:uppercase;
+      border-bottom:1px solid var(--border);
+      padding-bottom:6px;
+    }
+    .modal-buttons {
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+      margin-top:8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <div style="display:flex; align-items:center; gap:16px;">
+      <span class="title">PG Eyes</span>
+      <div style="display:flex; gap:4px; background:#161b22; padding:2px; border-radius:4px; border:1px solid var(--border);">
+        <a href="/">Tables</a>
+        <a href="/bets">Bets Log</a>
+        <a href="/stats">Performance Stats</a>
+        <a href="/summary">Bet Summary</a>
+        <a href="/stats-hypothesis" class="active">Hypothesis Backtest</a>
+      </div>
+    </div>
+    <div></div>
+  </div>
+
+  <div class="container">
+    <!-- Left Sidebar: Settings and Filters -->
+    <div class="sidebar">
+      <!-- Section: Saved Strategies -->
+      <div style="display: flex; gap: 8px; margin-bottom: 5px;">
+        <button onclick="openSaveModal()" class="preset-btn" style="flex: 1; border-color: var(--green); color: var(--green); padding: 5px; font-size: 10px; font-weight: 600;">Save Strategy 💾</button>
+        <button onclick="openLoadModal()" class="preset-btn" style="flex: 1; border-color: var(--cyan); color: var(--cyan); padding: 5px; font-size: 10px; font-weight: 600;">Load Strategy 📂</button>
+      </div>
+
+      <!-- Section: Base Dataset -->
+      <div>
+        <div class="section-title">Base Dataset Range</div>
+        <div class="date-presets">
+          <button id="p-today" onclick="setPreset('today')" class="preset-btn active">Today</button>
+          <button id="p-yesterday" onclick="setPreset('yesterday')" class="preset-btn">Yesterday</button>
+          <button id="p-last_7_days" onclick="setPreset('last_7_days')" class="preset-btn">7 Days</button>
+          <button id="p-all_time" onclick="setPreset('all_time')" class="preset-btn">All Time</button>
+          <button id="p-custom" onclick="setPreset('custom')" class="preset-btn">Custom</button>
+        </div>
+        <div id="custom-dates" style="display:none; flex-direction:column; gap:6px;">
+          <div class="form-group">
+            <label>From Date/Time</label>
+            <input type="datetime-local" id="filter-from">
+          </div>
+          <div class="form-group">
+            <label>To Date/Time</label>
+            <input type="datetime-local" id="filter-to">
+          </div>
+        </div>
+      </div>
+
+      <!-- Section: Bet Sizing Configuration -->
+      <div>
+        <div class="section-title">Bet Sizing Settings</div>
+        <div class="form-group">
+          <label>Starting Bankroll</label>
+          <input type="number" id="bankroll" value="1000" step="100">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Method</label>
+            <select id="method" onchange="toggleMethodInputs()">
+              <option value="kelly">Kelly Criterion</option>
+              <option value="flat" selected>Flat Betting</option>
+            </select>
+          </div>
+          <div class="form-group" id="flatRatioGroup">
+            <label>Flat Ratio</label>
+            <input type="number" id="flatRatio" value="0.01" step="0.005">
+          </div>
+          <div class="form-group" id="kellyFractionGroup" style="display:none;">
+            <label>Kelly Fraction</label>
+            <input type="number" id="kellyFraction" value="0.9" step="0.1">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Min Bet Limit</label>
+            <input type="number" id="minBet" value="0" step="5">
+          </div>
+          <div class="form-group">
+            <label>Max Bet Limit</label>
+            <input type="number" id="maxBet" value="500" step="50">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Rounding Multiplier</label>
+          <input type="number" id="rounding" value="10" step="5">
+        </div>
+      </div>
+
+      <!-- Section: EV Config Thresholds -->
+      <div>
+        <div class="section-title">EV Thresholds</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Min EV</label>
+            <input type="number" id="minEv" value="0.0014" step="0.0001">
+          </div>
+          <div class="form-group">
+            <label>Max EV (Opt)</label>
+            <input type="number" id="maxEv" placeholder="No limit" step="0.001">
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:8px;">
+          <label>Rebate Rate</label>
+          <input type="number" id="rebateRate" value="0.012" step="0.001">
+        </div>
+        <div class="checkbox-group">
+          <input type="checkbox" id="compounding" checked>
+          <label for="compounding" style="cursor:pointer; color:var(--text);">Compounding Bankroll</label>
+        </div>
+      </div>
+
+      <!-- Section: Simulation Filters -->
+      <div>
+        <div class="section-title">Hypothesis Filters</div>
+        <div class="form-group">
+          <label>Bet Types</label>
+          <div class="multiselect-container" id="bet-type-multiselect">
+            <div class="multiselect-select-box" onclick="toggleMultiselectDropdown(event)">
+              <span id="multiselect-selected-text">Player, Banker, Tie</span>
+            </div>
+            <div class="multiselect-options">
+              <label class="multiselect-option">
+                <input type="checkbox" value="PlayerBet" checked onchange="updateSelectedBetTypes()">
+                <span>Player Bet</span>
+              </label>
+              <label class="multiselect-option">
+                <input type="checkbox" value="BankerBet" checked onchange="updateSelectedBetTypes()">
+                <span>Banker Bet</span>
+              </label>
+              <label class="multiselect-option">
+                <input type="checkbox" value="TieBet" checked onchange="updateSelectedBetTypes()">
+                <span>Tie Bet</span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Min Round</label>
+            <input type="number" id="filter-roundMin" placeholder="Min">
+          </div>
+          <div class="form-group">
+            <label>Max Round</label>
+            <input type="number" id="filter-roundMax" placeholder="Max">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Original Bet Status</label>
+          <select id="filter-status">
+            <option value="ALL">All states</option>
+            <option value="SUCCESS">Success only</option>
+            <option value="AUTOBET_OFF">Auto-Bet Off only</option>
+            <option value="NON_SUCCESS">Non-Success only</option>
+          </select>
+        </div>
+        <div class="checkbox-group">
+          <input type="checkbox" id="filter-includeWaiting">
+          <label for="filter-includeWaiting" style="cursor:pointer; color:var(--text);">Include WAITING Outcomes</label>
+        </div>
+        <div class="checkbox-group" style="margin-top:6px;">
+          <input type="checkbox" id="show-seconds-ms" onchange="updateSecondsMsDisplay()">
+          <label for="show-seconds-ms" style="cursor:pointer; color:var(--text);">Show Seconds & Milliseconds</label>
+        </div>
+      </div>
+
+      <button onclick="runSimulation()" class="btn-run">Run Simulation</button>
+    </div>
+
+    <!-- Right Content: Results KPI & Graph -->
+    <div class="results" style="position:relative;">
+      <!-- Loading Overlay -->
+      <div id="sim-loader" class="sim-loader hidden">
+        <div class="spinner"></div>
+        <div class="loader-text" id="loader-text">Running simulation...</div>
+      </div>
+      <!-- KPI Row -->
+      <div class="kpis">
+        <div class="card accent">
+          <div class="label">Simulated PNL</div>
+          <div class="val" id="kpi-pnl">$0.00 <span style="font-size: 10px; font-weight: 500; opacity: 0.85; margin-left: 3px;">(0.00%)</span></div>
+          <div class="subtext" id="kpi-pnl-sub">Bal: $1,000.00 | Orig: +$0.00</div>
+        </div>
+        <div class="card">
+          <div class="label">Effective TO (Excl. pushes)</div>
+          <div class="val" id="kpi-eff-turnover">$0.00</div>
+          <div class="subtext" id="kpi-eff-turnover-sub">Total TO: $0.00</div>
+        </div>
+        <div class="card">
+          <div class="label">Rebate</div>
+          <div class="val" id="kpi-rebate">+$0.00</div>
+          <div class="subtext" id="kpi-rebate-sub">Eff. TO x 1.2%</div>
+        </div>
+        <div class="card">
+          <div class="label">Expected Net Profit</div>
+          <div class="val" id="kpi-ev">+$0.00</div>
+          <div class="subtext" id="kpi-ev-sub" style="color: #ffffff;">Exp. Loss: -$0.00 (0.00%)</div>
+        </div>
+        <div class="card">
+          <div class="label">Max Drawdown</div>
+          <div class="val" id="kpi-drawdown" style="color: var(--red);">-$0.00 <span style="font-size: 10px; font-weight: 500; opacity: 0.85; margin-left: 3px;">(0.00%)</span></div>
+          <div class="subtext">Peak-to-trough decline</div>
+        </div>
+        <div class="card">
+          <div class="label">Max Upswing</div>
+          <div class="val" id="kpi-upswing" style="color: var(--green);">+$0.00 <span style="font-size: 10px; font-weight: 500; opacity: 0.85; margin-left: 3px;">(0.00%)</span></div>
+          <div class="subtext">Trough-to-peak increase</div>
+        </div>
+        <div class="card">
+          <div class="label">Bets Placed</div>
+          <div class="val" id="kpi-bets">0 / 0</div>
+          <div class="subtext" id="kpi-bets-sub">Avg Bet: $0.00 | Eligible: 0</div>
+        </div>
+        <div class="card">
+          <div class="label">Win / Loss / Push</div>
+          <div class="val" id="kpi-winloss">0 / 0 / 0</div>
+          <div class="subtext" id="kpi-winrate">Win Rate: 0.00% (excl. pushes)</div>
+        </div>
+      </div>
+
+      <!-- Chart -->
+      <div class="chart-container" style="height:320px; display:flex; flex-direction:column;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <span style="color:var(--cyan); font-weight:600;">PORTFOLIO GROWTH CHART</span>
+          <div class="log-tabs">
+            <button class="log-tab active" id="btn-chart-all" onclick="setChartView('all')">All Bets</button>
+            <button class="log-tab" id="btn-chart-simulated" onclick="setChartView('simulated')">Simulated Bets Only</button>
+          </div>
+        </div>
+        <div style="flex:1; position:relative; min-height:0;">
+          <canvas id="pnlChart"></canvas>
+        </div>
+      </div>
+
+
+      <!-- Detailed Logs -->
+      <div class="table-container">
+        <div style="background:#0a0c10; padding:8px 12px; font-weight:600; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border);">
+          <div style="display:flex; align-items:center; gap:16px;">
+            <span style="color:var(--cyan);">SIMULATED ROUND LOGS</span>
+            <div class="log-tabs">
+              <button class="log-tab active" id="tab-log-ALL" onclick="setLogView('ALL')">All</button>
+              <button class="log-tab" id="tab-log-SIMULATED" onclick="setLogView('SIMULATED')">Simulated</button>
+              <button class="log-tab" id="tab-log-UNSIMULATED" onclick="setLogView('UNSIMULATED')">Skipped</button>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:12px;">
+            <span id="log-count" style="color:var(--dim);">0 records simulated</span>
+            <button class="btn-download" onclick="downloadResultsHtml()" title="Download results as standalone HTML">⬇ Export</button>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table id="logs-table">
+            <thead>
+              <tr>
+                <th>Date/Time</th>
+                <th>Table</th>
+                <th>Round</th>
+                <th>Sim Target</th>
+                <th>Skipped Reason</th>
+                <th>Rec EV %</th>
+                <th>Prob %</th>
+                <th>Sim Bet</th>
+                <th>Winner</th>
+                <th>Sim Profit</th>
+                <th>Sim Bankroll</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td colspan="11" style="text-align:center; padding:30px; color:var(--dim);">Select options and click "Run Simulation" to backtest.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="pagination" id="pagination-controls" style="display:none;">
+          <button id="btn-prev" onclick="changePage(-1)" disabled>← Prev</button>
+          <span class="page-info" id="page-info">Page 1 / 1</span>
+          <button id="btn-next" onclick="changePage(1)" disabled>Next →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let activePreset = 'today';
+    let pnlChartInstance = null;
+    let currentLogView = 'ALL';
+    let currentPage = 1;
+    let lastResult = null;
+    let isSimRunning = false;
+    let currentChartView = 'all';
+
+    function toggleMultiselectDropdown(e) {
+      if (e) e.stopPropagation();
+      const container = document.getElementById('bet-type-multiselect');
+      container.classList.toggle('open');
+    }
+
+    function updateSelectedBetTypes() {
+      const container = document.getElementById('bet-type-multiselect');
+      const checkboxes = container.querySelectorAll('.multiselect-options input[type="checkbox"]');
+      const selected = [];
+      checkboxes.forEach(cb => {
+        if (cb.checked) selected.push(cb.value);
+      });
+
+      const textEl = document.getElementById('multiselect-selected-text');
+      if (selected.length === 0) {
+        textEl.textContent = 'None';
+      } else if (selected.length === checkboxes.length) {
+        textEl.textContent = 'All Bet Types';
+      } else {
+        const labels = selected.map(val => {
+          if (val === 'PlayerBet') return 'Player';
+          if (val === 'BankerBet') return 'Banker';
+          if (val === 'TieBet') return 'Tie';
+          return val;
+        });
+        textEl.textContent = labels.join(', ');
+      }
+      if (typeof saveSettingsToLocalStorage === 'function') {
+        saveSettingsToLocalStorage();
+      }
+    }
+
+    function setChartView(view) {
+      currentChartView = view;
+      document.querySelectorAll('#btn-chart-all, #btn-chart-simulated').forEach(btn => btn.classList.remove('active'));
+      const activeBtn = document.getElementById(`btn-chart-${view}`);
+      if (activeBtn) activeBtn.classList.add('active');
+
+      if (lastResult) {
+        if (view === 'simulated') {
+          drawPnlChart(lastResult.chartData.actualSimulated, lastResult.chartData.expectedSimulated);
+        } else {
+          drawPnlChart(lastResult.chartData.actual, lastResult.chartData.expected);
+        }
+      }
+    }
+
+    // Close multiselect dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+      const container = document.getElementById('bet-type-multiselect');
+      if (container && !container.contains(e.target)) {
+        container.classList.remove('open');
+      }
+    });
+
+    function saveSettingsToLocalStorage() {
+      const selectedBetTypes = [];
+      document.querySelectorAll('#bet-type-multiselect .multiselect-options input[type="checkbox"]').forEach(cb => {
+        if (cb.checked) selectedBetTypes.push(cb.value);
+      });
+
+      const settings = {
+        bankroll: document.getElementById('bankroll').value,
+        method: document.getElementById('method').value,
+        flatRatio: document.getElementById('flatRatio').value,
+        kellyFraction: document.getElementById('kellyFraction').value,
+        minBet: document.getElementById('minBet').value,
+        maxBet: document.getElementById('maxBet').value,
+        rounding: document.getElementById('rounding').value,
+        rebateRate: document.getElementById('rebateRate').value,
+        minEv: document.getElementById('minEv').value,
+        maxEv: document.getElementById('maxEv').value,
+        compounding: document.getElementById('compounding').checked,
+        activePreset: activePreset,
+        filterFrom: document.getElementById('filter-from').value,
+        filterTo: document.getElementById('filter-to').value,
+        filterBetType: selectedBetTypes,
+        filterRoundMin: document.getElementById('filter-roundMin').value,
+        filterRoundMax: document.getElementById('filter-roundMax').value,
+        filterStatus: document.getElementById('filter-status').value,
+        includeWaiting: document.getElementById('filter-includeWaiting').checked
+      };
+      
+      localStorage.setItem('pg_hypothesis_last_settings', JSON.stringify(settings));
+    }
+
+    function loadSavedSettingsFromLocalStorage() {
+      try {
+        const data = localStorage.getItem('pg_hypothesis_last_settings');
+        if (!data) return false;
+        const settings = JSON.parse(data);
+        if (!settings) return false;
+
+        if (settings.bankroll !== undefined) document.getElementById('bankroll').value = settings.bankroll;
+        if (settings.method !== undefined) { document.getElementById('method').value = settings.method; toggleMethodInputs(); }
+        if (settings.flatRatio !== undefined) document.getElementById('flatRatio').value = settings.flatRatio;
+        if (settings.kellyFraction !== undefined) document.getElementById('kellyFraction').value = settings.kellyFraction;
+        if (settings.minBet !== undefined) document.getElementById('minBet').value = settings.minBet;
+        if (settings.maxBet !== undefined) document.getElementById('maxBet').value = settings.maxBet;
+        if (settings.rounding !== undefined) document.getElementById('rounding').value = settings.rounding;
+        if (settings.rebateRate !== undefined) document.getElementById('rebateRate').value = settings.rebateRate;
+        
+        if (settings.minEv !== undefined) {
+          document.getElementById('minEv').value = settings.minEv;
+        } else if (settings.playerMinEv !== undefined) {
+          document.getElementById('minEv').value = settings.playerMinEv;
+        }
+
+        if (settings.maxEv !== undefined) {
+          document.getElementById('maxEv').value = settings.maxEv;
+        } else if (settings.playerMaxEv !== undefined) {
+          document.getElementById('maxEv').value = settings.playerMaxEv;
+        }
+
+        if (settings.compounding !== undefined) document.getElementById('compounding').checked = settings.compounding;
+        if (settings.activePreset !== undefined) setPreset(settings.activePreset);
+        if (settings.filterFrom !== undefined) document.getElementById('filter-from').value = settings.filterFrom;
+        if (settings.filterTo !== undefined) document.getElementById('filter-to').value = settings.filterTo;
+
+        if (settings.filterBetType !== undefined) {
+          const container = document.getElementById('bet-type-multiselect');
+          const checkboxes = container.querySelectorAll('.multiselect-options input[type="checkbox"]');
+          let selectedTypes = [];
+          if (Array.isArray(settings.filterBetType)) {
+            selectedTypes = settings.filterBetType;
+          } else if (typeof settings.filterBetType === 'string') {
+            if (settings.filterBetType === 'ALL') {
+              selectedTypes = ['PlayerBet', 'BankerBet', 'TieBet'];
+            } else {
+              selectedTypes = settings.filterBetType.split(',');
+            }
+          }
+          checkboxes.forEach(cb => {
+            cb.checked = selectedTypes.includes(cb.value);
+          });
+          updateSelectedBetTypes();
+        }
+
+        if (settings.filterRoundMin !== undefined) document.getElementById('filter-roundMin').value = settings.filterRoundMin;
+        if (settings.filterRoundMax !== undefined) document.getElementById('filter-roundMax').value = settings.filterRoundMax;
+        if (settings.filterStatus !== undefined) document.getElementById('filter-status').value = settings.filterStatus;
+        if (settings.includeWaiting !== undefined) document.getElementById('filter-includeWaiting').checked = settings.includeWaiting;
+        
+        return true;
+      } catch (e) {
+        console.error("Failed to load settings from localStorage:", e);
+        return false;
+      }
+    }
+
+    function bindInputAutoSave() {
+      const inputs = [
+        'bankroll', 'method', 'flatRatio', 'kellyFraction', 'minBet', 'maxBet', 
+        'rounding', 'rebateRate', 'minEv', 'maxEv', 'compounding', 
+        'filter-from', 'filter-to', 'filter-roundMin', 'filter-roundMax', 
+        'filter-status', 'filter-includeWaiting'
+      ];
+      inputs.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.addEventListener('input', saveSettingsToLocalStorage);
+          el.addEventListener('change', saveSettingsToLocalStorage);
+        }
+      });
+    }
+
+    function showLoader(text) {
+      const loader = document.getElementById('sim-loader');
+      document.getElementById('loader-text').innerHTML = text || 'Running simulation...';
+      loader.classList.remove('hidden');
+    }
+    function hideLoader() {
+      document.getElementById('sim-loader').classList.add('hidden');
+    }
+
+    function setLogView(mode) {
+      currentLogView = mode;
+      document.querySelectorAll('.log-tab').forEach(btn => btn.classList.remove('active'));
+      const activeBtn = document.getElementById(`tab-log-${mode}`);
+      if (activeBtn) activeBtn.classList.add('active');
+      currentPage = 1;
+      fetchPage(1);
+    }
+
+    window.addEventListener('DOMContentLoaded', async () => {
+      initCustomDates();
+      await loadLiveConfig();
+      loadSavedSettingsFromLocalStorage();
+      initSavedStrategies();
+      bindInputAutoSave();
+      await runSimulation();
+    });
+
+    function getStoredStrategies() {
+      try {
+        const item = localStorage.getItem('pg_hypothesis_strategies');
+        return item ? JSON.parse(item) : {};
+      } catch (e) { return {}; }
+    }
+
+    function initSavedStrategies() {
+      const strategies = getStoredStrategies();
+      const select = document.getElementById('saved-strategies-select');
+      select.innerHTML = '<option value="">-- Select a strategy --</option>';
+      for (const name of Object.keys(strategies)) {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        select.appendChild(opt);
+      }
+    }
+
+    function saveStrategy() {
+      const nameInput = document.getElementById('new-strategy-name');
+      const name = nameInput.value.trim();
+      if (!name) { alert("Please enter a strategy name to save."); return; }
+
+      // Get selected bet types
+      const selectedBetTypes = [];
+      document.querySelectorAll('#bet-type-multiselect .multiselect-options input[type="checkbox"]').forEach(cb => {
+        if (cb.checked) selectedBetTypes.push(cb.value);
+      });
+
+      const settings = {
+        bankroll: document.getElementById('bankroll').value,
+        method: document.getElementById('method').value,
+        flatRatio: document.getElementById('flatRatio').value,
+        kellyFraction: document.getElementById('kellyFraction').value,
+        minBet: document.getElementById('minBet').value,
+        maxBet: document.getElementById('maxBet').value,
+        rounding: document.getElementById('rounding').value,
+        rebateRate: document.getElementById('rebateRate').value,
+        minEv: document.getElementById('minEv').value,
+        maxEv: document.getElementById('maxEv').value,
+        compounding: document.getElementById('compounding').checked,
+        activePreset: activePreset,
+        filterFrom: document.getElementById('filter-from').value,
+        filterTo: document.getElementById('filter-to').value,
+        filterBetType: selectedBetTypes,
+        filterRoundMin: document.getElementById('filter-roundMin').value,
+        filterRoundMax: document.getElementById('filter-roundMax').value,
+        filterStatus: document.getElementById('filter-status').value,
+        includeWaiting: document.getElementById('filter-includeWaiting').checked
+      };
+
+      const strategies = getStoredStrategies();
+      strategies[name] = settings;
+      localStorage.setItem('pg_hypothesis_strategies', JSON.stringify(strategies));
+      closeSaveModal();
+      alert(`Strategy "${name}" saved!`);
+    }
+
+    function loadSelectedStrategy() {
+      const select = document.getElementById('saved-strategies-select');
+      const name = select.value;
+      if (!name) return;
+
+      const strategies = getStoredStrategies();
+      const settings = strategies[name];
+      if (!settings) return;
+
+      if (settings.bankroll !== undefined) document.getElementById('bankroll').value = settings.bankroll;
+      if (settings.method !== undefined) { document.getElementById('method').value = settings.method; toggleMethodInputs(); }
+      if (settings.flatRatio !== undefined) document.getElementById('flatRatio').value = settings.flatRatio;
+      if (settings.kellyFraction !== undefined) document.getElementById('kellyFraction').value = settings.kellyFraction;
+      if (settings.minBet !== undefined) document.getElementById('minBet').value = settings.minBet;
+      if (settings.maxBet !== undefined) document.getElementById('maxBet').value = settings.maxBet;
+      if (settings.rounding !== undefined) document.getElementById('rounding').value = settings.rounding;
+      if (settings.rebateRate !== undefined) document.getElementById('rebateRate').value = settings.rebateRate;
+      
+      // Load minEv with legacy fallback
+      if (settings.minEv !== undefined) {
+        document.getElementById('minEv').value = settings.minEv;
+      } else if (settings.playerMinEv !== undefined) {
+        document.getElementById('minEv').value = settings.playerMinEv;
+      }
+
+      // Load maxEv with legacy fallback
+      if (settings.maxEv !== undefined) {
+        document.getElementById('maxEv').value = settings.maxEv;
+      } else if (settings.playerMaxEv !== undefined) {
+        document.getElementById('maxEv').value = settings.playerMaxEv;
+      }
+
+      if (settings.compounding !== undefined) document.getElementById('compounding').checked = settings.compounding;
+      if (settings.activePreset !== undefined) setPreset(settings.activePreset);
+      if (settings.filterFrom !== undefined) document.getElementById('filter-from').value = settings.filterFrom;
+      if (settings.filterTo !== undefined) document.getElementById('filter-to').value = settings.filterTo;
+      
+      // Load bet types checkboxes
+      if (settings.filterBetType !== undefined) {
+        const container = document.getElementById('bet-type-multiselect');
+        const checkboxes = container.querySelectorAll('.multiselect-options input[type="checkbox"]');
+        let selectedTypes = [];
+        if (Array.isArray(settings.filterBetType)) {
+          selectedTypes = settings.filterBetType;
+        } else if (typeof settings.filterBetType === 'string') {
+          if (settings.filterBetType === 'ALL') {
+            selectedTypes = ['PlayerBet', 'BankerBet', 'TieBet'];
+          } else {
+            selectedTypes = settings.filterBetType.split(',');
+          }
+        }
+        checkboxes.forEach(cb => {
+          cb.checked = selectedTypes.includes(cb.value);
+        });
+        updateSelectedBetTypes();
+      }
+
+      if (settings.filterRoundMin !== undefined) document.getElementById('filter-roundMin').value = settings.filterRoundMin;
+      if (settings.filterRoundMax !== undefined) document.getElementById('filter-roundMax').value = settings.filterRoundMax;
+      if (settings.filterStatus !== undefined) document.getElementById('filter-status').value = settings.filterStatus;
+      if (settings.includeWaiting !== undefined) document.getElementById('filter-includeWaiting').checked = settings.includeWaiting;
+
+      currentLogView = 'ALL';
+      document.querySelectorAll('.log-tab').forEach(btn => btn.classList.remove('active'));
+      document.getElementById('tab-log-ALL').classList.add('active');
+      runSimulation();
+      closeLoadModal();
+    }
+
+    function deleteStrategy() {
+      const select = document.getElementById('saved-strategies-select');
+      const name = select.value;
+      if (!name) return;
+      if (!confirm(`Are you sure you want to delete the strategy "${name}"?`)) return;
+      const strategies = getStoredStrategies();
+      delete strategies[name];
+      localStorage.setItem('pg_hypothesis_strategies', JSON.stringify(strategies));
+      initSavedStrategies();
+      closeLoadModal();
+    }
+
+    function openSaveModal() {
+      document.getElementById('new-strategy-name').value = '';
+      document.getElementById('save-modal').classList.remove('hidden');
+      document.getElementById('new-strategy-name').focus();
+    }
+    function closeSaveModal() { document.getElementById('save-modal').classList.add('hidden'); }
+    function openLoadModal() { initSavedStrategies(); document.getElementById('load-modal').classList.remove('hidden'); }
+    function closeLoadModal() { document.getElementById('load-modal').classList.add('hidden'); }
+
+    function initCustomDates() {
+      const now = new Date();
+      const formatter = new Intl.DateTimeFormat("en-US", {
+        timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "numeric", day: "numeric",
+        hour: "numeric", minute: "numeric", second: "numeric", hour12: false
+      });
+      const parts = formatter.formatToParts(now);
+      const partMap = Object.fromEntries(parts.map(p => [p.type, p.value]));
+      const myYear = parseInt(partMap.year), myMonth = parseInt(partMap.month) - 1, myDay = parseInt(partMap.day);
+      const today12pmUTC = new Date(Date.UTC(myYear, myMonth, myDay, 4, 0, 0, 0));
+      let currentPeriodStartUTC = now < today12pmUTC ? new Date(today12pmUTC.getTime() - 86400000) : today12pmUTC;
+      const toMalaysiaLocalISO = (date) => {
+        const fmt = new Intl.DateTimeFormat("sv-SE", {
+          timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit",
+          hour: "2-digit", minute: "2-digit", hour12: false
+        });
+        return fmt.format(date).replace(" ", "T");
+      };
+      document.getElementById('filter-from').value = toMalaysiaLocalISO(currentPeriodStartUTC);
+      document.getElementById('filter-to').value = toMalaysiaLocalISO(now);
+    }
+
+    async function loadLiveConfig() {
+      try {
+        const res = await fetch('/api/config');
+        if (res.ok) {
+          const config = await res.json();
+          if (config.startingBankroll) document.getElementById('bankroll').value = config.startingBankroll;
+          if (config.method) { document.getElementById('method').value = config.method; toggleMethodInputs(); }
+          if (config.flatRatio) document.getElementById('flatRatio').value = config.flatRatio;
+          if (config.kellyFraction) document.getElementById('kellyFraction').value = config.kellyFraction;
+          if (config.minBet !== undefined) document.getElementById('minBet').value = config.minBet;
+          if (config.maxBet) document.getElementById('maxBet').value = config.maxBet;
+          if (config.rounding) document.getElementById('rounding').value = config.rounding;
+          if (config.rebateRate) document.getElementById('rebateRate').value = config.rebateRate;
+          if (config.minEvThreshold) {
+            document.getElementById('minEv').value = config.minEvThreshold;
+          }
+          if (config.maxEvThreshold) {
+            document.getElementById('maxEv').value = config.maxEvThreshold;
+          }
+        }
+      } catch (e) { console.error("Failed to load live settings config:", e.message); }
+    }
+
+    function toggleMethodInputs() {
+      const val = document.getElementById('method').value;
+      if (val === 'flat') {
+        document.getElementById('flatRatioGroup').style.display = 'block';
+        document.getElementById('kellyFractionGroup').style.display = 'none';
+      } else {
+        document.getElementById('flatRatioGroup').style.display = 'none';
+        document.getElementById('kellyFractionGroup').style.display = 'block';
+      }
+    }
+
+    function setPreset(preset) {
+      document.querySelectorAll('.preset-btn').forEach(btn => btn.classList.remove('active'));
+      document.getElementById(`p-${preset}`).classList.add('active');
+      activePreset = preset;
+      document.getElementById('custom-dates').style.display = preset === 'custom' ? 'flex' : 'none';
+      if (typeof saveSettingsToLocalStorage === 'function') {
+        saveSettingsToLocalStorage();
+      }
+    }
+
+    function collectParams(page) {
+      // Get selected bet types
+      const selectedBetTypes = [];
+      document.querySelectorAll('#bet-type-multiselect .multiselect-options input[type="checkbox"]').forEach(cb => {
+        if (cb.checked) selectedBetTypes.push(cb.value);
+      });
+
+      const params = {
+        range: activePreset,
+        bankroll: document.getElementById('bankroll').value,
+        method: document.getElementById('method').value,
+        flatRatio: document.getElementById('flatRatio').value,
+        kellyFraction: document.getElementById('kellyFraction').value,
+        minBet: document.getElementById('minBet').value,
+        maxBet: document.getElementById('maxBet').value,
+        rounding: document.getElementById('rounding').value,
+        rebateRate: document.getElementById('rebateRate').value,
+        minEv: document.getElementById('minEv').value,
+        maxEv: document.getElementById('maxEv').value || null,
+        compounding: document.getElementById('compounding').checked,
+        betTypes: selectedBetTypes,
+        roundMin: document.getElementById('filter-roundMin').value || null,
+        roundMax: document.getElementById('filter-roundMax').value || null,
+        statusFilter: document.getElementById('filter-status').value,
+        includeWaiting: document.getElementById('filter-includeWaiting').checked,
+        logView: currentLogView,
+        page: page || 1
+      };
+
+      if (activePreset === 'custom') {
+        const fromVal = document.getElementById('filter-from').value;
+        const toVal = document.getElementById('filter-to').value;
+        if (fromVal) params.from = new Date(fromVal + "+08:00").toISOString();
+        if (toVal) params.to = new Date(toVal + "+08:00").toISOString();
+      }
+      return params;
+    }
+
+
+    async function runSimulation() {
+      if (isSimRunning) return;
+      isSimRunning = true;
+      if (activePreset === 'custom') {
+        const fromVal = document.getElementById('filter-from').value;
+        const toVal = document.getElementById('filter-to').value;
+        if (!fromVal || !toVal) {
+          document.querySelector('#logs-table tbody').innerHTML = '<tr><td colspan="11" style="text-align:center; padding:30px; color:var(--red);">Please pick custom start/end dates.</td></tr>';
+          isSimRunning = false;
+          return;
+        }
+      }
+      showLoader('Running simulation on server...');
+      currentPage = 1;
+      try {
+        const params = collectParams(1);
+        const res = await fetch('/api/run-backtest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(params)
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error);
+        lastResult = data;
+        renderResults(data);
+      } catch (e) {
+        document.querySelector('#logs-table tbody').innerHTML = `<tr><td colspan="11" style="text-align:center; padding:30px; color:var(--red);">Failed: ${e.message}</td></tr>`;
+      } finally {
+        hideLoader();
+        isSimRunning = false;
+      }
+    }
+
+    async function fetchPage(page) {
+      showLoader('Loading page...');
+      try {
+        const params = collectParams(page);
+        const res = await fetch('/api/run-backtest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(params)
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error);
+        lastResult = data;
+        renderResults(data);
+      } catch (e) {
+        document.querySelector('#logs-table tbody').innerHTML = `<tr><td colspan="11" style="text-align:center; padding:30px; color:var(--red);">Failed: ${e.message}</td></tr>`;
+      } finally {
+        hideLoader();
+      }
+    }
+
+    function changePage(delta) {
+      const newPage = currentPage + delta;
+      if (lastResult && newPage >= 1 && newPage <= lastResult.totalPages) {
+        currentPage = newPage;
+        fetchPage(currentPage);
+      }
+    }
+
+    function renderResults(data) {
+      const k = data.kpis;
+      const roiText = `${(k.simRoi ?? 0) >= 0 ? '+' : ''}${(k.simRoi ?? 0).toFixed(2)}%`;
+      document.getElementById('kpi-pnl').innerHTML = `${(k.simPnl ?? 0) >= 0 ? '+' : ''}$${(k.simPnl ?? 0).toFixed(2)} <span style="font-size: 10px; font-weight: 500; opacity: 0.85; margin-left: 3px;">(${roiText})</span>`;
+      document.getElementById('kpi-pnl').style.color = (k.simPnl ?? 0) >= 0 ? 'var(--green)' : 'var(--red)';
+
+      const houseYieldPnl = (k.simPnl ?? 0) - (k.totalRebate ?? 0);
+      const hySign = houseYieldPnl >= 0 ? '+' : '';
+      const hyPerc = (k.effTurnover ?? 0) > 0 ? (houseYieldPnl / k.effTurnover) * 100 : 0;
+      document.getElementById('kpi-pnl-sub').innerHTML = `Actual Loss from House Yield: <span style="color:#ffffff; font-weight:600;">${hySign}$${houseYieldPnl.toFixed(2)} (${hySign}${hyPerc.toFixed(2)}%)</span>`;
+      document.getElementById('kpi-bets').textContent = `${k.betsPlaced ?? 0} / ${k.totalRounds ?? 0}`;
+      document.getElementById('kpi-bets-sub').textContent = `Avg Bet: $${(k.avgBet ?? 0).toFixed(2)} | Eligible: ${k.eligibleRounds ?? 0}`;
+      document.getElementById('kpi-winloss').textContent = `${k.wins ?? 0}W / ${k.losses ?? 0}L / ${k.pushes ?? 0}P`;
+      document.getElementById('kpi-winrate').textContent = `Win Rate: ${(k.winRate ?? 0).toFixed(2)}% (excl. pushes)`;
+      const mddPerc = (k.initBankroll ?? 0) > 0 ? ((k.maxDrawdown ?? 0) / k.initBankroll) * 100 : 0;
+      const upswingPerc = (k.initBankroll ?? 0) > 0 ? ((k.maxUpswing ?? 0) / k.initBankroll) * 100 : 0;
+      document.getElementById('kpi-drawdown').innerHTML = `-$${(k.maxDrawdown ?? 0).toFixed(2)} <span style="font-size: 10px; font-weight: 500; opacity: 0.85; margin-left: 3px;">(-${mddPerc.toFixed(2)}%)</span>`;
+      document.getElementById('kpi-upswing').innerHTML = `+$${(k.maxUpswing ?? 0).toFixed(2)} <span style="font-size: 10px; font-weight: 500; opacity: 0.85; margin-left: 3px;">(+${upswingPerc.toFixed(2)}%)</span>`;
+
+      document.getElementById('kpi-eff-turnover').textContent = `$${k.effTurnover.toFixed(0)}`;
+      document.getElementById('kpi-eff-turnover-sub').textContent = `Total TO: $${k.totalTurnover.toFixed(0)}`;
+      document.getElementById('kpi-rebate').textContent = `+$${k.totalRebate.toFixed(2)}`;
+      const rate = parseFloat(document.getElementById('rebateRate').value) || 0.012;
+      const formattedRate = (rate * 100).toFixed(3).replace(/\.?0+$/, '') + '%';
+      document.getElementById('kpi-rebate-sub').textContent = `Eff. TO x ${formattedRate}`;
+      document.getElementById('kpi-ev').textContent = `${k.simExpNet >= 0 ? '+' : ''}$${k.simExpNet.toFixed(2)}`;
+      document.getElementById('kpi-ev').style.color = k.simExpNet >= 0 ? 'var(--green)' : 'var(--red)';
+      document.getElementById('kpi-ev-sub').textContent = `Exp. Loss: ${k.simExpLoss >= 0 ? '+' : ''}$${k.simExpLoss.toFixed(2)} (${k.explPerc >= 0 ? '+' : ''}${k.explPerc.toFixed(2)}%)`;
+      const c = data.counts;
+      document.getElementById('log-count').textContent = `${c.loaded} loaded | ${c.simulated} simulated | ${c.skipped} skipped`;
+      if (currentChartView === 'simulated') {
+        drawPnlChart(data.chartData.actualSimulated, data.chartData.expectedSimulated);
+      } else {
+        drawPnlChart(data.chartData.actual, data.chartData.expected);
+      }
+      const tbody = document.querySelector('#logs-table tbody');
+      if (data.rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:30px; color:var(--dim);">No records found for this view.</td></tr>';
+      } else {
+        tbody.innerHTML = data.rows.map(r => buildRowHtml(r)).join('');
+      }
+      currentPage = data.page;
+      const pagCtrl = document.getElementById('pagination-controls');
+      if (data.totalPages > 1) {
+        pagCtrl.style.display = 'flex';
+        document.getElementById('page-info').textContent = `Page ${data.page} / ${data.totalPages} (${data.totalRows} rows)`;
+        document.getElementById('btn-prev').disabled = data.page <= 1;
+        document.getElementById('btn-next').disabled = data.page >= data.totalPages;
+      } else {
+        pagCtrl.style.display = data.totalRows > 0 ? 'flex' : 'none';
+        document.getElementById('page-info').textContent = `${data.totalRows} rows`;
+        document.getElementById('btn-prev').disabled = true;
+        document.getElementById('btn-next').disabled = true;
+      }
+    }
+
+    function updateSecondsMsDisplay() {
+      if (lastResult && lastResult.rows) {
+        const tbody = document.querySelector('#logs-table tbody');
+        if (lastResult.rows.length > 0) {
+          tbody.innerHTML = lastResult.rows.map(r => buildRowHtml(r)).join('');
+        }
+      }
+    }
+
+    function buildRowHtml(r) {
+      const targetLabel = r.simTarget === 'None' ? '<span style="color:var(--dim);">None</span>' :
+        (r.simTarget === 'PlayerBet' ? '<span style="color:var(--blue);">Player</span>' :
+        (r.simTarget === 'BankerBet' ? '<span style="color:var(--yellow);">Banker</span>' : '<span style="color:var(--purple);">Tie</span>'));
+      const outcomeCol = r.simProfit > 0 ? 'var(--green)' : (r.simProfit < 0 ? 'var(--red)' : 'var(--text)');
+      const outcomeSign = r.simProfit > 0 ? '+' : '';
+      const winnerLabel = r.roundOutcome === 'T' ? '<span style="color:var(--dim); font-weight:600;">T</span>' :
+        (r.roundOutcome === 'P' ? '<span style="color:var(--blue); font-weight:600;">P</span>' :
+        (r.roundOutcome === 'B' ? '<span style="color:var(--yellow); font-weight:600;">B</span>' :
+        '<span style="color:var(--dim); font-weight:500;">WAITING</span>'));
+      const dateObj = new Date(r.time);
+      const showSecondsMs = document.getElementById('show-seconds-ms').checked;
+      let timeStr;
+      if (showSecondsMs) {
+        timeStr = dateObj.toLocaleDateString('en-SG', { month: 'short', day: '2-digit' }) + ' ' +
+          dateObj.toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) + '.' +
+          String(dateObj.getMilliseconds()).padStart(3, '0');
+      } else {
+        timeStr = dateObj.toLocaleDateString('en-SG', { month: 'short', day: '2-digit' }) + ' ' +
+          dateObj.toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', hour12: false });
+      }
+      return `<tr>
+        <td style="color:var(--dim);">${timeStr}</td>
+        <td style="color:var(--cyan); font-weight:500;">${r.tableName}</td>
+        <td>#${r.round}</td>
+        <td>${targetLabel}</td>
+        <td style="color:var(--dim); font-size:10px;">${r.skippedReason}</td>
+        <td style="color:var(--cyan);">${r.bestEv !== null ? (r.bestEv * 100).toFixed(3) + '%' : '-'}</td>
+        <td>${r.simProb !== null ? (r.simProb * 100).toFixed(1) + '%' : '-'}</td>
+        <td style="font-weight:600; color:var(--text);">${r.simAmount > 0 ? '$' + r.simAmount.toFixed(0) : '-'}</td>
+        <td>${winnerLabel}</td>
+        <td style="color:${outcomeCol}; font-weight:600;">${r.simAmount > 0 ? outcomeSign + r.simProfit.toFixed(2) : '-'}</td>
+        <td style="font-weight:600;">$${r.bankroll.toFixed(2)}</td>
+      </tr>`;
+    }
+
+    function drawPnlChart(actualData, expectedData) {
+      const ctx = document.getElementById('pnlChart').getContext('2d');
+      if (pnlChartInstance) pnlChartInstance.destroy();
+      pnlChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: actualData.map(d => d.x),
+          datasets: [
+            {
+              label: 'Actual Bankroll ($)',
+              data: actualData.map(d => d.y),
+              borderColor: '#39c5cf',
+              backgroundColor: 'rgba(57, 197, 207, 0.05)',
+              borderWidth: 1.5, fill: true, tension: 0.1, pointRadius: 0
+            },
+            {
+              label: 'Expected Profit (EV) ($)',
+              data: expectedData.map(d => d.y),
+              borderColor: '#f97316',
+              backgroundColor: 'transparent',
+              borderWidth: 1.5, borderDash: [5, 5], fill: false, tension: 0.1, pointRadius: 0
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: true, position: 'top',
+              labels: { color: '#c9d1d9', boxWidth: 12, font: { family: 'JetBrains Mono', size: 9 } }
+            }
+          },
+          scales: {
+            x: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#5a6370', font: { family: 'JetBrains Mono' } } },
+            y: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#5a6370', font: { family: 'JetBrains Mono' } } }
+          }
+        }
+      });
+    }
+
+    function downloadResultsHtml() {
+      if (!lastResult) { alert('No simulation results to export. Run a simulation first.'); return; }
+      const k = lastResult.kpis;
+      const c = lastResult.counts;
+      const now = new Date().toLocaleString('en-SG', { timeZone: 'Asia/Kuala_Lumpur' });
+      const tableHtml = document.querySelector('#logs-table').outerHTML;
+      const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Backtest Results - ${now}</title>
+  <style>
+    body { font-family: 'Courier New', monospace; background: #0b0e14; color: #c9d1d9; font-size: 11px; padding: 20px; }
+    h1 { color: #39c5cf; font-size: 14px; margin-bottom: 4px; }
+    .meta { color: #5a6370; margin-bottom: 16px; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+    .kpi { background: #12161f; border: 1px solid #1a1f2e; border-radius: 4px; padding: 10px; }
+    .kpi .label { color: #5a6370; font-size: 9px; text-transform: uppercase; }
+    .kpi .val { font-size: 16px; font-weight: 600; margin: 4px 0; }
+    .green { color: #3fb950; } .red { color: #f85149; }
+    table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+    th, td { padding: 4px 8px; text-align: left; border-bottom: 1px solid #1a1f2e; font-size: 10px; }
+    th { background: #0a0c10; color: #39c5cf; text-transform: uppercase; font-size: 9px; }
+  </style>
+</head>
+<body>
+  <h1>PG Eyes - Backtest Simulation Results</h1>
+  <div class="meta">Generated: ${now} | ${c.loaded} loaded | ${c.simulated} simulated | ${c.skipped} skipped</div>
+  <div class="kpi-grid">
+    <div class="kpi"><div class="label">Simulated PNL</div><div class="val ${k.simPnl >= 0 ? 'green' : 'red'}">${k.simPnl >= 0 ? '+' : ''}$${k.simPnl.toFixed(2)}</div></div>
+    <div class="kpi"><div class="label">ROI</div><div class="val ${k.simRoi >= 0 ? 'green' : 'red'}">${k.simRoi >= 0 ? '+' : ''}${k.simRoi.toFixed(2)}%</div></div>
+    <div class="kpi"><div class="label">Bets Placed</div><div class="val">${k.betsPlaced} / ${k.totalRounds}</div></div>
+    <div class="kpi"><div class="label">Win / Loss / Push</div><div class="val">${k.wins}W / ${k.losses}L / ${k.pushes}P</div></div>
+    <div class="kpi"><div class="label">Win Rate</div><div class="val">${k.winRate.toFixed(2)}%</div></div>
+    <div class="kpi"><div class="label">Turnover</div><div class="val">$${k.totalTurnover.toFixed(0)}</div></div>
+  </div>
+  ${tableHtml}
+</body>
+</html>`;
+      const blob = new Blob([html], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `backtest_${new Date().toISOString().slice(0, 10)}.html`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  </script>
+  <!-- Save Strategy Modal -->
+  <div id="save-modal" class="modal-overlay hidden" onclick="closeSaveModal(event)">
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <div class="modal-header">Save Strategy Template</div>
+      <div class="form-group" style="margin-top: 8px;">
+        <label>Strategy Name</label>
+        <input type="text" id="new-strategy-name" placeholder="E.g., High EV Kelly, Flat 5..." style="margin-top:4px;">
+      </div>
+      <div class="modal-buttons">
+        <button onclick="closeSaveModal()" class="preset-btn" style="border-color:var(--dim); color:var(--dim); padding:5px 10px;">Cancel</button>
+        <button onclick="saveStrategy()" class="preset-btn" style="border-color:var(--green); color:var(--green); padding:5px 10px;">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Load Strategy Modal -->
+  <div id="load-modal" class="modal-overlay hidden" onclick="closeLoadModal(event)">
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <div class="modal-header">Load Strategy Template</div>
+      <div class="form-group" style="margin-top: 8px;">
+        <label>Saved Templates</label>
+        <select id="saved-strategies-select" style="margin-top:4px;">
+          <option value="">-- Select a strategy --</option>
+        </select>
+      </div>
+      <div class="modal-buttons" style="display:flex; justify-content:space-between; width:100%; margin-top: 8px;">
+        <button onclick="deleteStrategy()" class="preset-btn" style="border-color:var(--red); color:var(--red); padding:5px 10px;">Delete</button>
+        <div style="display:flex; gap:8px;">
+          <button onclick="closeLoadModal()" class="preset-btn" style="border-color:var(--dim); color:var(--dim); padding:5px 10px;">Cancel</button>
+          <button onclick="loadSelectedStrategy()" class="preset-btn" style="border-color:var(--cyan); color:var(--cyan); padding:5px 10px;">Load</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
