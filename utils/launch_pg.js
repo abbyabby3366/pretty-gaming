@@ -234,7 +234,8 @@ async function evaluateState(browser, urls) {
           lowerText.includes("session timeout") ||
           lowerText.includes("access denied") ||
           lowerText.includes("another device") ||
-          lowerText.includes("logged out")
+          lowerText.includes("logged out") ||
+          lowerText.includes("log in from elsewhere")
         ) {
           console.log(`[evaluateState] Session timeout overlay detected — dismissing and reloading...`);
 
