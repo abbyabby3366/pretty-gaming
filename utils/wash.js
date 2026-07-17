@@ -11,7 +11,7 @@ function launchWash() {
   // Load PG env variables so we can read HOTROAD_PATH if set.
   require('dotenv').config({ path: path.join(__dirname, "..", ".env") });
 
-  const defaultHotroadPath = path.resolve(__dirname, '..', '..', 'hotroad-v4');
+  const defaultHotroadPath = path.resolve(__dirname, '..', 'hotroad-v4');
   const hotroadPath = process.env.HOTROAD_PATH 
     ? path.resolve(__dirname, '..', process.env.HOTROAD_PATH) 
     : defaultHotroadPath;
