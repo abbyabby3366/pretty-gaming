@@ -17,5 +17,9 @@ run = "node dashboard/server.js"
 description = "Launch all bet module accounts (run: true in bet_accounts.json)"
 run = "node bet_module/launcher.js"
 
+[tasks.wash]
+description = "Copy bet_accounts.json to Hotroad and launch Hotroad betting module"
+run = "node utils/wash.js"
+
 [tools]
 node = "22"
