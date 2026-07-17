@@ -341,11 +341,32 @@ async function reconcile() {
       continue;
     }
 
-    // Kill existing if mode changed
+    // Kill existing if mode changed (wash → bet)
     if (existing && existing.child) {
       const label = acct.label || `Account ${acct.originalIndex}`;
       console.log(`\x1b[35m[Unified] ⚡ ${label}: wash → bet\x1b[0m`);
       await killChild(existing.child);
+
+      // Send a "goodbye" heartbeat to HR Central so the module disappears immediately
+      const hrEnv = readHotroadEnvFile();
+      const hrCentralUrl = hrEnv.CENTRAL_URL;
+      if (hrCentralUrl) {
+        // The Hotroad bet module registers on HR Central with moduleId = account label
+        const goodbyePayload = {
+          moduleId: label,
+          baseUrl: `http://127.0.0.1:0`,
+          label: label,
+          accountIndex: acct.originalIndex,
+          accounts: [{ label: label, isAcceptingBets: false, balance: null }],
+          isShuttingDown: true
+        };
+        fetch(`${hrCentralUrl}/api/bet-module/heartbeat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(goodbyePayload)
+        }).catch(() => { });
+        console.log(`[Unified] Sent goodbye heartbeat to HR Central (${hrCentralUrl}) for ${label}`);
+      }
 
       // Force kill the Chrome browser for this port
       const chromePort = getAccountPort(acct);

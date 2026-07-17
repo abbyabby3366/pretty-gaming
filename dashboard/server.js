@@ -281,6 +281,8 @@ function resolveBetModuleTarget() {
   let online = Array.from(activeModules.values()).filter(m => {
     // Exclude wash-mode modules from bet routing
     if (m.isWashMode) return false;
+    // Exclude modules whose account has been toggled to wash (even if heartbeat still active)
+    if (m.accountIndex != null && launchModes[String(m.accountIndex)] === "wash") return false;
     // Timeout stuck busy modules (e.g. > 60s)
     if (m.isBusy && m.busySince && now - m.busySince > 60000) {
       m.isBusy = false;
@@ -1037,21 +1039,27 @@ function startDashboard(stateManager) {
       try {
         const body = await parseJSONBody(req);
         if (body.moduleId && body.baseUrl) {
-          const existing = activeModules.get(body.moduleId);
-          activeModules.set(body.moduleId, {
-            moduleId: body.moduleId,
-            baseUrl: body.baseUrl,
-            label: body.label || body.moduleId,
-            accountIndex: body.accountIndex != null ? body.accountIndex : null,
-            accounts: body.accounts || [],
-            lastHeartbeat: Date.now(),
-            isWashMode: body.isWashMode || false,
-            isBusy: existing ? existing.isBusy : false,
-            busySince: existing ? existing.busySince : null
-          });
+          // If the module is shutting down, remove it immediately
+          if (body.isShuttingDown) {
+            activeModules.delete(body.moduleId);
+            console.log(`[Central] Module ${body.label || body.moduleId} sent shutdown signal — removed.`);
+          } else {
+            const existing = activeModules.get(body.moduleId);
+            activeModules.set(body.moduleId, {
+              moduleId: body.moduleId,
+              baseUrl: body.baseUrl,
+              label: body.label || body.moduleId,
+              accountIndex: body.accountIndex != null ? body.accountIndex : null,
+              accounts: body.accounts || [],
+              lastHeartbeat: Date.now(),
+              isWashMode: body.isWashMode || false,
+              isBusy: existing ? existing.isBusy : false,
+              busySince: existing ? existing.busySince : null
+            });
 
-          // If any bets are queued, try to process them now that a module is checking in
-          processCentralQueue();
+            // If any bets are queued, try to process them now that a module is checking in
+            processCentralQueue();
+          }
         }
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: true }));
