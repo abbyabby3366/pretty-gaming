@@ -253,6 +253,11 @@ function syncAndSpawnHotroad(washAccounts, allAccounts, portMap) {
   // Spawn Hotroad launcher
   console.log(`\x1b[33m[Unified] ▶ Spawning Hotroad launcher for wash accounts\x1b[0m`);
   const childEnv = buildHotroadEnv();
+  // Override port & base URL so this doesn't conflict with standalone Hotroad.
+  // Configure via PG's .env: WASH_BET_PORT, WASH_BET_BASE_URL
+  const washPort = process.env.WASH_BET_PORT || "5001";
+  childEnv.BET_PORT = washPort;
+  childEnv.BET_MODULE_BASE_URL = process.env.WASH_BET_BASE_URL || `http://127.0.0.1:${washPort}`;
 
   const child = spawn('node', [hotroadLauncher], {
     cwd: hotroadPath,
