@@ -55,7 +55,7 @@ async function killChromeOnPort(port) {
     const pids = stdout.split(/\r?\n/).map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n) && n > 0);
     for (const pid of pids) {
       console.log(`[Unified] Killing Chrome PID ${pid}...`);
-      await execAsync(`taskkill /PID ${pid} /F /T`, { timeout: 5000 }).catch(() => {});
+      await execAsync(`taskkill /PID ${pid} /F /T`, { timeout: 5000 }).catch(() => { });
     }
   } catch (e) {
     console.error(`[Unified] Error killing Chrome on port ${port}:`, e.message);
@@ -76,7 +76,7 @@ async function closeAllTabs(port) {
       // Close all 'page' type targets
       if (tab.type === "page") {
         console.log(`[Unified] 🧹 Closing tab on port ${port}: ${tab.title || tab.url}`);
-        await fetch(`http://127.0.0.1:${port}/json/close/${tab.id}`).catch(() => {});
+        await fetch(`http://127.0.0.1:${port}/json/close/${tab.id}`).catch(() => { });
       }
     }
   } catch (err) {
@@ -215,6 +215,29 @@ function buildHotroadEnv() {
   return childEnv;
 }
 
+function readHotroadEnvFile() {
+  const hrEnvPath = path.resolve(hotroadPath, '.env');
+  if (!fs.existsSync(hrEnvPath)) return {};
+  try {
+    const content = fs.readFileSync(hrEnvPath, 'utf-8');
+    const env = {};
+    const lines = content.split(/\r?\n/);
+    for (let line of lines) {
+      line = line.trim();
+      if (!line || line.startsWith('#')) continue;
+      const match = line.match(/^([^=]+)=(.*)$/);
+      if (match) {
+        env[match[1].trim()] = match[2].trim();
+      }
+    }
+    return env;
+  } catch (err) {
+    console.error(`[Unified] Failed to read Hotroad .env file:`, err.message);
+    return {};
+  }
+}
+
+
 // ──────────────────────────────────────────────
 // Sync wash accounts to Hotroad and spawn Hotroad launcher
 // ──────────────────────────────────────────────
@@ -253,11 +276,15 @@ function syncAndSpawnHotroad(washAccounts, allAccounts, portMap) {
   // Spawn Hotroad launcher
   console.log(`\x1b[33m[Unified] ▶ Spawning Hotroad launcher for wash accounts\x1b[0m`);
   const childEnv = buildHotroadEnv();
+
+  // Read Hotroad's .env file as a fallback
+  const hrEnv = readHotroadEnvFile();
+
   // Override port & base URL so this doesn't conflict with standalone Hotroad.
   // Configure via PG's .env: WASH_BET_PORT, WASH_BET_BASE_URL
-  const washPort = process.env.WASH_BET_PORT || "5001";
+  const washPort = process.env.WASH_BET_PORT || hrEnv.BET_PORT || "5001";
   childEnv.BET_PORT = washPort;
-  childEnv.BET_MODULE_BASE_URL = process.env.WASH_BET_BASE_URL || `http://127.0.0.1:${washPort}`;
+  childEnv.BET_MODULE_BASE_URL = process.env.WASH_BET_BASE_URL || hrEnv.BET_MODULE_BASE_URL || `http://127.0.0.1:${washPort}`;
 
   const child = spawn('node', [hotroadLauncher], {
     cwd: hotroadPath,
@@ -397,7 +424,7 @@ async function reconcile() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
-    }).catch(() => {}); // fire-and-forget
+    }).catch(() => { }); // fire-and-forget
   }
 }
 
@@ -417,7 +444,7 @@ async function reconcile() {
     await fetch(`${CENTRAL_URL}/api/launch-mode/reset`, {
       method: "POST",
       signal: AbortSignal.timeout(3000)
-    }).catch(() => {});
+    }).catch(() => { });
   } catch (e) { /* ignore */ }
 
   const modes = await fetchModes();
