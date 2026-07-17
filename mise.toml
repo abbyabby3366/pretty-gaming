@@ -14,8 +14,8 @@ description = "Run the Central Dashboard server"
 run = "node dashboard/server.js"
 
 [tasks.bet]
-description = "Launch all bet module accounts (run: true in bet_accounts.json)"
-run = "node bet_module/launcher.js"
+description = "Launch bet modules (reads launch_mode.json — toggleable from dashboard)"
+run = "node bet_module/unified_launcher.js"
 
 [tasks.wash]
 description = "Copy bet_accounts.json to Hotroad and launch Hotroad betting module"

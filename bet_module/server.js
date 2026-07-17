@@ -54,6 +54,7 @@ function sendHeartbeat() {
     moduleId: MODULE_ID,
     baseUrl: BASE_URL,
     label: currentModuleLabel,
+    accountIndex: ACCOUNT_INDEX,
     accounts: [{ label: currentAccountLabel, isAcceptingBets: isBrowserReady, balance: latestBalance }]
   };
 

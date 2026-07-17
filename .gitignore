@@ -19,3 +19,4 @@ eyes/json/eyes_accounts.json
 .env
 
 dashboard/config.json
+dashboard/launch_mode.json

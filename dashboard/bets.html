@@ -7,6 +7,16 @@
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
+    /* Launch mode toggle pill */
+    .launch-toggle{display:inline-flex;border-radius:4px;overflow:hidden;border:1px solid var(--border);margin-left:10px;font-size:10px;font-weight:600;cursor:pointer;position:relative;}
+    .launch-toggle .lt-opt{padding:3px 10px;transition:all 0.2s;user-select:none;}
+    .launch-toggle .lt-opt.active-bet{background:var(--cyan);color:#000;}
+    .launch-toggle .lt-opt.active-wash{background:var(--orange);color:#000;}
+    .launch-toggle .lt-opt.inactive{background:transparent;color:var(--dim);}
+    .launch-toggle .lt-opt.inactive:hover{color:var(--text);background:rgba(255,255,255,0.05);}
+    .launch-toggle.disabled{opacity:0.5;pointer-events:none;}
+    .launch-toast{position:fixed;top:12px;left:50%;transform:translateX(-50%);background:var(--card);border:1px solid var(--border);color:var(--text);padding:8px 16px;border-radius:6px;font-size:11px;z-index:999;opacity:0;transition:opacity 0.3s;pointer-events:none;font-family:'JetBrains Mono',monospace;}
+    .launch-toast.show{opacity:1;}
     :root {
       --bg:#0b0e14; --card:#12161f; --border:#1a1f2e;
       --text:#c9d1d9; --dim:#5a6370;
@@ -62,6 +72,8 @@
     .status-dot { height: 8px; width: 8px; border-radius: 50%; display: inline-block; }
     .status-online { background: var(--green); box-shadow: 0 0 5px var(--green); }
     .status-offline { background: var(--red); }
+    .status-wash { background: var(--orange); box-shadow: 0 0 5px var(--orange); }
+    .module-card.wash-mode { border-color: var(--orange); border-style: dashed; }
 
     .modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); display:none; justify-content:center; align-items:center; z-index:99; }
     .modal { background:var(--card); border:1px solid var(--border); padding:20px; border-radius:8px; width:400px; }
@@ -143,6 +155,7 @@
       <button onclick="window.location.href='/stats'" style="background:var(--blue);color:white;border:none;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit;font-weight:600;margin-left:5px;">View Stats</button>
       <button onclick="window.location.href='/summary'" style="background:var(--orange);color:white;border:none;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit;font-weight:600;margin-left:5px;">Bet Summary</button>
       <button onclick="window.location.href='/stats-hypothesis'" style="background:var(--yellow);color:#000;border:none;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:inherit;font-weight:600;margin-left:5px;">Hypothesis Backtest</button>
+
       <a href="/">← Back to Tables</a>
     </div>
   </div>
@@ -543,6 +556,12 @@
             let acctHtml = '';
             if (m.accounts && m.accounts.length > 0) {
               for (const a of m.accounts) {
+                 // Wash-mode accounts show HOTROAD status
+                 if (a.isWashMode || m.isWashMode) {
+                   acctHtml += `<div class="acct-row"><span style="color:var(--orange);font-weight:600;">HOTROAD MODE</span></div>`;
+                   continue;
+                 }
+
                  const isReady = a.isAcceptingBets;
                  let readyColor = isReady ? 'var(--green)' : 'var(--yellow)';
                  let readyText = isReady ? 'READY' : 'LAUNCHING';
@@ -578,11 +597,32 @@
 
             const modRate = successRates.moduleLast1000 ? successRates.moduleLast1000[headerLabel] : null;
 
+            // Per-account launch mode toggle
+            const acctIdx = m.accountIndex;
+            let toggleHtml = '';
+            if (acctIdx != null) {
+              const acctMode = (launchModes[String(acctIdx)] || 'bet');
+              const cooldownKey = String(acctIdx);
+              const isOnCooldown = accountCooldowns[cooldownKey] && Date.now() < accountCooldowns[cooldownKey];
+              const disabledClass = isOnCooldown ? ' disabled' : '';
+              toggleHtml = `<div class="launch-toggle${disabledClass}" title="Switch launch mode for this account">
+                <span class="lt-opt ${acctMode === 'bet' ? 'active-bet' : 'inactive'}" onclick="setAccountMode(${acctIdx}, 'bet')">PG</span>
+                <span class="lt-opt ${acctMode === 'wash' ? 'active-wash' : 'inactive'}" onclick="setAccountMode(${acctIdx}, 'wash')">HR</span>
+              </div>`;
+            }
+
+            const isWash = m.isWashMode;
+            const statusDotClass = isWash ? 'status-dot status-wash' : 'status-dot status-online';
+            const statusDotTitle = isWash ? 'Hotroad Mode' : `Last seen ${Math.round((now - m.lastHeartbeat)/1000)}s ago`;
+
             modHtml += `
-              <div class="module-card">
+              <div class="module-card${isWash ? ' wash-mode' : ''}">
                 <div class="m-title">
                   <span>${headerLabel}</span>
-                  <span class="status-dot status-online" title="Last seen ${Math.round((now - m.lastHeartbeat)/1000)}s ago"></span>
+                  <div style="display:flex;align-items:center;gap:6px;">
+                    ${toggleHtml}
+                    <span class="${statusDotClass}" title="${statusDotTitle}"></span>
+                  </div>
                 </div>
                 <div class="m-url" style="display:flex; justify-content:flex-end; gap:12px; margin-bottom:4px;">
                   <span style="color:${profitColorToday}; font-weight:600;" title="Today's P/L (Since 12 PM)">Today: ${profitSignToday}${profitToday.toFixed(2)}</span>
@@ -639,6 +679,74 @@
     initSettings();
     poll();
     setInterval(poll, 1000);
+
+    // ── Per-Account Launch Mode Toggle ──────────────────────
+    let launchModes = {}; // { "0": "bet", "1": "wash", ... }
+    const accountCooldowns = {}; // { "0": timestampUntil, ... }
+    const COOLDOWN_MS = 30000; // 30 second cooldown per account
+
+    async function fetchLaunchModes() {
+      try {
+        const res = await fetch('/api/launch-mode');
+        const data = await res.json();
+        if (data.ok) {
+          launchModes = data.accounts || {};
+        }
+      } catch (e) {
+        console.error('Failed to fetch launch modes:', e);
+      }
+    }
+
+    async function setAccountMode(index, mode) {
+      const key = String(index);
+      const currentMode = launchModes[key] || 'bet';
+      if (mode === currentMode) return;
+
+      // Check cooldown
+      if (accountCooldowns[key] && Date.now() < accountCooldowns[key]) return;
+
+      const labels = { bet: 'PG', wash: 'Hotroad' };
+      if (!confirm(`Switch Account ${index} from ${labels[currentMode]} to ${labels[mode]}?\n\nThe launcher will pick up the change within ~10 seconds.`)) return;
+
+      try {
+        const res = await fetch('/api/launch-mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ index, mode })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          launchModes = data.accounts || {};
+          showLaunchToast(`Account ${index} → ${labels[mode]} — picks up in ~10s`);
+          // Start per-account cooldown
+          accountCooldowns[key] = Date.now() + COOLDOWN_MS;
+          // Force re-render to update toggle state
+          lastDataStr = '';
+          poll();
+        } else {
+          alert('Failed to switch mode: ' + (data.error || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('Failed to switch mode: ' + e.message);
+      }
+    }
+
+    function showLaunchToast(msg) {
+      let toast = document.getElementById('launch-toast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'launch-toast';
+        toast.className = 'launch-toast';
+        document.body.appendChild(toast);
+      }
+      toast.textContent = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 4000);
+    }
+
+    fetchLaunchModes();
+    // Refresh launch modes periodically so toggles stay in sync
+    setInterval(fetchLaunchModes, 10000);
   </script>
 
   <div class="modal-overlay" id="settings-modal">

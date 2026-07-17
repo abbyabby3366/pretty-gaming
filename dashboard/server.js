@@ -235,8 +235,11 @@ setInterval(() => {
       const label = (m.accounts && m.accounts[0] && m.accounts[0].label) || m.label || moduleId;
       console.log(`\x1b[31m[Central] Module ${label} (${moduleId}) went stale — removing.\x1b[0m`);
       activeModules.delete(moduleId);
-      sendWhatsAppNotification(`[ALERT] Bet module "${label}" (${moduleId}) went offline — no heartbeat for ${Math.round(STALE_THRESHOLD_MS / 1000)}s.`)
-        .catch(err => console.error("WhatsApp notification failed:", err.message));
+      // Only send WhatsApp alerts for non-wash modules (wash modules are expected to cycle)
+      if (!m.isWashMode) {
+        sendWhatsAppNotification(`[ALERT] Bet module "${label}" (${moduleId}) went offline — no heartbeat for ${Math.round(STALE_THRESHOLD_MS / 1000)}s.`)
+          .catch(err => console.error("WhatsApp notification failed:", err.message));
+      }
     }
   }
 }, 5000);
@@ -275,6 +278,8 @@ function resolveBetModuleTarget() {
   const now = Date.now();
   // Filter modules that sent a heartbeat in the last 12 seconds AND are not busy
   let online = Array.from(activeModules.values()).filter(m => {
+    // Exclude wash-mode modules from bet routing
+    if (m.isWashMode) return false;
     // Timeout stuck busy modules (e.g. > 60s)
     if (m.isBusy && m.busySince && now - m.busySince > 60000) {
       m.isBusy = false;
@@ -1036,8 +1041,10 @@ function startDashboard(stateManager) {
             moduleId: body.moduleId,
             baseUrl: body.baseUrl,
             label: body.label || body.moduleId,
+            accountIndex: body.accountIndex != null ? body.accountIndex : null,
             accounts: body.accounts || [],
             lastHeartbeat: Date.now(),
+            isWashMode: body.isWashMode || false,
             isBusy: existing ? existing.isBusy : false,
             busySince: existing ? existing.busySince : null
           });
@@ -1389,6 +1396,96 @@ function startDashboard(stateManager) {
         res.end(JSON.stringify({ ok: false, error: e.message }));
       }
       return;
+    }
+
+    // Get / toggle launch mode per account (bet vs wash)
+    if (req.url === "/api/launch-mode" || req.url.startsWith("/api/launch-mode?")) {
+      const launchModeFile = path.join(__dirname, "launch_mode.json");
+
+      // Helper: read the accounts map from launch_mode.json
+      function readLaunchModes() {
+        try {
+          if (fs.existsSync(launchModeFile)) {
+            const data = JSON.parse(fs.readFileSync(launchModeFile, "utf-8"));
+            return data.accounts || {};
+          }
+        } catch (e) { /* ignore */ }
+        return {};
+      }
+
+      if (req.method === "GET") {
+        try {
+          const accounts = readLaunchModes();
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true, accounts }));
+        } catch (e) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+        return;
+      }
+      if (req.method === "POST") {
+        try {
+          const body = await parseJSONBody(req);
+          const index = String(body.index);
+          const newMode = body.mode;
+          if (newMode !== "bet" && newMode !== "wash") {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: false, error: "Invalid mode. Must be 'bet' or 'wash'." }));
+            return;
+          }
+          if (index == null || index === "undefined") {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: false, error: "Missing 'index' field." }));
+            return;
+          }
+
+          const accounts = readLaunchModes();
+          const oldMode = accounts[index] || "bet";
+          accounts[index] = newMode;
+
+          fs.writeFileSync(launchModeFile, JSON.stringify({ accounts }, null, 2));
+
+          // Look up account label for the notification
+          let accountLabel = `Account ${index}`;
+          try {
+            const acctFile = path.resolve(__dirname, "..", "bet_module", "json", "bet_accounts.json");
+            if (fs.existsSync(acctFile)) {
+              const accts = JSON.parse(fs.readFileSync(acctFile, "utf-8"));
+              const idx = parseInt(index, 10);
+              if (accts[idx] && accts[idx].label) accountLabel = accts[idx].label;
+            }
+          } catch (e) { /* ignore */ }
+
+          const modeLabels = { bet: "PG", wash: "Hotroad" };
+          console.log(`[Central] Launch mode for ${accountLabel} (index ${index}): ${oldMode} → ${newMode}`);
+
+          // Immediately mark the affected module as non-routable so no bets
+          // are dispatched during the ~10s window before the launcher kills it.
+          if (oldMode !== newMode) {
+            const idx = parseInt(index, 10);
+            for (const [, m] of activeModules) {
+              if (m.accountIndex === idx) {
+                if (m.accounts) {
+                  for (const a of m.accounts) a.isAcceptingBets = false;
+                }
+                console.log(`[Central] Immediately marked module ${m.label} as non-routable (mode switch pending).`);
+                break;
+              }
+            }
+
+            sendWhatsAppNotification(`[MODE SWITCH] ${accountLabel} (index ${index}): ${modeLabels[oldMode]} → ${modeLabels[newMode]}`)
+              .catch(err => console.error("WhatsApp notification failed:", err.message));
+          }
+
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true, accounts }));
+        } catch (e) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+        return;
+      }
     }
 
     // Get / toggle auto-snapshot
