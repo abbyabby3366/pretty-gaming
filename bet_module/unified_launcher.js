@@ -26,7 +26,7 @@ const POLL_INTERVAL_MS = 10000; // 10 seconds
 const KILL_TIMEOUT_MS = 3000;
 
 // Hotroad config (from wash.js)
-const defaultHotroadPath = path.resolve(__dirname, '..', '..', 'hotroad-v4');
+const defaultHotroadPath = path.resolve(__dirname, '..', 'hotroad-v4');
 const hotroadPath = process.env.HOTROAD_PATH
   ? path.resolve(__dirname, '..', process.env.HOTROAD_PATH)
   : defaultHotroadPath;
