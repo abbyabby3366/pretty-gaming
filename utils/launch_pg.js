@@ -7,8 +7,11 @@ require("dotenv").config({ path: require("path").resolve(__dirname, "..", ".env"
 const puppeteer = require("puppeteer");
 const path = require("path");
 const fs = require("fs");
-const { spawn } = require("child_process");
+const { spawn, exec } = require("child_process");
+const util = require("util");
+const execAsync = util.promisify(exec);
 const { getBrowserArgs } = require("./browserArgs");
+const { verifyProxyIp } = require("./proxy_verifier");
 const { checkPGpage } = require("./check_page_pg");
 
 const LOGIN_TIMESTAMPS_FILE = path.resolve(__dirname, "login_timestamps.json");
@@ -34,7 +37,7 @@ const SELECTORS = {
 const TIMEOUTS = {
   dashboardWait: 3000,
   navigationWait: 30000,
-  selectorWait: 15000,
+  selectorWait: 10000,
   tabWait: 30000,
 };
 
@@ -42,107 +45,127 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isRelevantFrame(frame) {
-  const url = (frame.url() || "").toLowerCase();
-  if (frame === frame.page().mainFrame()) return true;
-  if (url.includes("filesusr.com") || url.includes("about:blank") || url.includes("wixstatic.com")) return false;
-  return true;
-}
-
-async function callWithTimeout(promise, timeoutMs = 3000, defaultValue = null) {
-  let timer;
-  const timeoutPromise = new Promise((resolve) => {
-    timer = setTimeout(() => resolve(defaultValue), timeoutMs);
-  });
-  return Promise.race([
-    promise.then((res) => {
-      clearTimeout(timer);
-      return res;
-    }).catch(() => {
-      clearTimeout(timer);
-      return defaultValue;
-    }),
-    timeoutPromise
-  ]);
-}
-
-async function waitForSelectorInAnyFrame(page, selector, timeoutMs = 30000) {
-  const startTime = Date.now();
-  let lastLogTime = 0;
-  while (Date.now() - startTime < timeoutMs) {
-    const frames = page.frames();
-    for (const frame of frames) {
-      if (!isRelevantFrame(frame)) continue;
+async function killZombieChromeOnPort(port, logger) {
+  const targetFlag = `--remote-debugging-port=${port}`;
+  try {
+    const psCommand = [
+      `Get-CimInstance Win32_Process -Filter "Name='chrome.exe'"`,
+      `| Where-Object { $_.CommandLine -like '*${targetFlag}*' -and $_.CommandLine -notlike '*--type=*' }`,
+      `| Select-Object -ExpandProperty ProcessId`,
+    ].join(" ");
+    const { stdout } = await execAsync(
+      `powershell -NoProfile -NonInteractive -Command "${psCommand}"`,
+      { encoding: "utf8", timeout: 10000 },
+    );
+    const pids = stdout.split(/\r?\n/).map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n) && n > 0);
+    if (pids.length === 0) return;
+    for (const pid of pids) {
       try {
-        const el = await callWithTimeout(frame.$(selector), 2000, null);
-        if (el) return frame;
+        logger.warn(`Found zombie Chrome (PID ${pid}) with ${targetFlag}. Killing...`);
+        await execAsync(`taskkill /PID ${pid} /F /T`, { timeout: 5000 });
       } catch (e) {}
     }
-    
-    // Log frame URLs periodically (every 5 seconds) to help diagnose loading issues
-    if (Date.now() - startTime > 5000 && Date.now() - lastLogTime > 5000) {
-      lastLogTime = Date.now();
-      const urls = frames.map(f => {
-        try {
-          return `${f.url() || "empty"} (relevant: ${isRelevantFrame(f)})`;
-        } catch (e) {
-          return "error getting url";
-        }
-      });
-      console.log(`[Diagnostic] Waiting for selector "${selector}". Current frames:\n - ${urls.join("\n - ")}`);
-    }
-    
-    await sleep(500);
-  }
-  throw new Error(`Selector "${selector}" not found in any frame within ${timeoutMs}ms`);
+  } catch (e) {}
 }
 
-async function waitForAnySelectorInAnyFrame(page, selectorsList, timeoutMs = 30000, options = {}) {
-  const startTime = Date.now();
-  const list = Array.isArray(selectorsList) ? selectorsList : [selectorsList];
-  let lastLogTime = 0;
-  while (Date.now() - startTime < timeoutMs) {
-    const frames = page.frames();
-    for (const frame of frames) {
-      if (!isRelevantFrame(frame)) continue;
-      for (const selector of list) {
-        try {
-          const el = await callWithTimeout(frame.$(selector), 2000, null);
-          if (el) {
-            if (options.visible) {
-              const isVisible = await callWithTimeout(
-                frame.evaluate((element) => {
-                  if (!element) return false;
-                  const style = window.getComputedStyle(element);
-                  return style && style.display !== 'none' && style.visibility !== 'hidden' && element.offsetWidth > 0 && element.offsetHeight > 0;
-                }, el),
-                2000,
-                false
-              );
-              if (!isVisible) continue;
-            }
-            return { frame, selector };
+/**
+ * Perform a single immediate check (or quick wait) on the page for error overlays
+ * and dismiss them. Helpful right after launch/navigation.
+ * 
+ * @param {import('puppeteer').Page} page
+ * @param {Object} logger
+ */
+async function checkPageErrors(page, logger = console) {
+  try {
+    const errorState = await page.evaluate(() => {
+      const selectors = [
+        ".el-message-box",
+        ".swal2-container",
+        ".swal-modal",
+        ".modal-dialog",
+        ".dialog-container",
+        ".popup-box",
+        ".EmailVerificationRoot"
+      ];
+
+      let foundBox = null;
+      let boxText = "";
+
+      for (const selector of selectors) {
+        const el = document.querySelector(selector);
+        if (el) {
+          const rect = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          const isVisible = rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+          if (isVisible) {
+            foundBox = el;
+            boxText = el.innerText || "";
+            break;
           }
-        } catch (e) {}
-      }
-    }
-
-    // Log frame URLs periodically (every 5 seconds) to help diagnose loading issues
-    if (Date.now() - startTime > 5000 && Date.now() - lastLogTime > 5000) {
-      lastLogTime = Date.now();
-      const urls = frames.map(f => {
-        try {
-          return `${f.url() || "empty"} (relevant: ${isRelevantFrame(f)})`;
-        } catch (e) {
-          return "error getting url";
         }
-      });
-      console.log(`[Diagnostic] Waiting for selectors [${list.join(", ")}]. Current frames:\n - ${urls.join("\n - ")}`);
-    }
+      }
 
-    await sleep(500);
+      if (foundBox) {
+        const lowerText = boxText.toLowerCase();
+        const errorPatterns = [
+          "session timeout",
+          "access denied",
+          "another device",
+          "logged out",
+          "kick out",
+          "please login",
+          "connection lost",
+          "disconnected",
+          "network error",
+          "maintenance",
+          "login expired",
+          "log in from elsewhere"
+        ];
+
+        const hasError = errorPatterns.some(pat => lowerText.includes(pat));
+        if (hasError) {
+          const confirmSelectors = [
+            "button.swal2-confirm",
+            ".el-message-box__btns button",
+            ".el-message-box__btns .el-button--primary",
+            "button.swal-button--confirm",
+            ".modal-footer button",
+            "button"
+          ];
+
+          let clicked = false;
+          for (const sel of confirmSelectors) {
+            const btns = Array.from(foundBox.querySelectorAll(sel));
+            const confirmBtn = btns.find(b => {
+              const txt = (b.textContent || b.innerText || "").trim().toLowerCase();
+              return /ok|confirm|yes|close|retry|continue/i.test(txt);
+            });
+
+            if (confirmBtn) {
+              confirmBtn.click();
+              clicked = true;
+              break;
+            }
+          }
+
+          return { found: true, text: boxText.trim(), clicked };
+        }
+      }
+
+      return { found: false };
+    });
+
+    if (errorState && errorState.found) {
+      logger.warn(`[PageCheck] Found error overlay on start: "${errorState.text}". Dismissed: ${errorState.clicked}`);
+      await sleep(1500);
+      await page.reload({ waitUntil: "networkidle2", timeout: 30000 }).catch(() => {});
+    }
+  } catch (err) {
+    // Ignore errors during check
   }
-  throw new Error(`None of the selectors [${list.join(", ")}] found/visible in any frame within ${timeoutMs}ms`);
+
+  // Let it settle for a couple of seconds
+  await sleep(3000);
 }
 
 function buildAccountConfig(accountIndex = 0, accountsFilePath, modulePrefix = "") {
@@ -188,7 +211,7 @@ function buildAccountConfig(accountIndex = 0, accountsFilePath, modulePrefix = "
     },
     credentials: account.credentials || {},
     urls: {
-      login: "https://www.winbox88my6.com/login",
+      login: "https://login.winboxmalay.com/",
       pgLobby: ["hippo168.com", "cloudfront.net"] // Supports both direct URL and Winbox CloudFront redirect
     },
   };
@@ -198,6 +221,7 @@ const STATES = {
   IN_GAME: "IN_GAME",
   WINBOX_DASHBOARD: "WINBOX_DASHBOARD",
   WINBOX_LOGIN: "WINBOX_LOGIN",
+  GAME_NOT_QUIT: "GAME_NOT_QUIT",
   UNINITIALIZED: "UNINITIALIZED",
 };
 
@@ -220,10 +244,11 @@ async function evaluateState(browser, urls) {
       let sessionBox = null;
       let boxText = "";
       for (const frame of p.frames()) {
-        if (!isRelevantFrame(frame)) continue;
-        sessionBox = await callWithTimeout(frame.$(".el-message-box"), 2000, null);
+        sessionBox = await frame.$(".el-message-box").catch(() => null);
         if (sessionBox) {
-          boxText = await callWithTimeout(frame.evaluate((el) => el.innerText, sessionBox), 2000, "");
+          boxText = await frame
+            .evaluate((el) => el.innerText, sessionBox)
+            .catch(() => "");
           break;
         }
       }
@@ -241,7 +266,9 @@ async function evaluateState(browser, urls) {
 
           // Strategy 1: Click OK button via child selector
           let dismissed = false;
-          const okBtn = await callWithTimeout(sessionBox.$(".el-message-box__btns button"), 2000, null);
+          const okBtn = await sessionBox
+            .$(".el-message-box__btns button")
+            .catch(() => null);
           if (okBtn) {
             await okBtn.click().catch(() => {});
             dismissed = true;
@@ -250,59 +277,72 @@ async function evaluateState(browser, urls) {
           // Strategy 2: Try frame-level selector fallback
           if (!dismissed) {
             for (const frame of p.frames()) {
-              if (!isRelevantFrame(frame)) continue;
               try {
-                const clicked = await callWithTimeout(
-                  frame.evaluate(() => {
-                    const btn =
-                      document.querySelector(".el-message-box__btns button") ||
-                      document.querySelector(".el-message-box__btns .el-button--primary");
-                    if (btn) { btn.click(); return true; }
-                    const allBtns = document.querySelectorAll(".el-message-box button");
-                    for (const b of allBtns) {
-                      if (/OK|Confirm/i.test(b.textContent)) { b.click(); return true; }
-                    }
-                    return false;
-                  }),
-                  2000,
-                  false
-                );
+                const clicked = await frame.evaluate(() => {
+                  const btn =
+                    document.querySelector(".el-message-box__btns button") ||
+                    document.querySelector(".el-message-box__btns .el-button--primary");
+                  if (btn) { btn.click(); return true; }
+                  const allBtns = document.querySelectorAll(".el-message-box button");
+                  for (const b of allBtns) {
+                    if (/OK|Confirm/i.test(b.textContent)) { b.click(); return true; }
+                  }
+                  return false;
+                });
                 if (clicked) { dismissed = true; break; }
               } catch (e) {}
             }
           }
 
           await sleep(1000);
-          await p.reload({ timeout: 30000 }).catch(() => {});
-          try {
-            await waitForAnySelectorInAnyFrame(p, [SELECTORS.myNav, SELECTORS.uid], 15000, { visible: true });
-          } catch (e) {
-            console.log(`[evaluateState] After reload, neither dashboard nor login form became visible: ${e.message}`);
-          }
-          await sleep(3000);
+          await p.reload({ waitUntil: "networkidle2", timeout: 30000 }).catch(() => {});
+          await sleep(2000);
           continue; // Re-evaluate this page's state after reload
         }
       }
 
-      // Check if we reached the pretty gaming lobby
+      // Check if we reached the Pretty Gaming lobby
       if (urls.pgLobby.some(domain => url.includes(domain))) {
         return { state: STATES.IN_GAME, page: p };
       }
 
       let isDashboard = false;
       let isLogin = false;
+      let isGameNotQuit = false;
 
       for (const frame of p.frames()) {
-        if (!isRelevantFrame(frame)) continue;
         try {
-          if (await callWithTimeout(frame.$(SELECTORS.myNav), 2000, null)) isDashboard = true;
-          if (await callWithTimeout(frame.$(SELECTORS.uid), 2000, null) ||
-              await callWithTimeout(frame.$$(SELECTORS.loginPopup), 2000, []).then(el => el && el.length > 0)) isLogin = true;
+          if (await frame.$(SELECTORS.myNav).catch(() => null)) isDashboard = true;
+          if (await frame.$(SELECTORS.uid).catch(() => null) ||
+              await frame.$$(SELECTORS.loginPopup).then(el => el.length > 0).catch(() => false)) isLogin = true;
+
+          // Check for visible "Quit Game" element in dashboard/any frame
+          const hasQuitText = await frame.evaluate(() => {
+            const redName = document.querySelector('.name.red');
+            if (redName && redName.textContent.trim() === 'Quit Game') {
+              const rect = redName.getBoundingClientRect();
+              if (rect.width > 0 && rect.height > 0) return true;
+            }
+            const elements = document.querySelectorAll('div, button, span, a');
+            for (const el of elements) {
+              if (el.textContent.trim() === 'Quit Game' && el.children.length === 0) {
+                const rect = el.getBoundingClientRect();
+                if (rect.width > 0 && rect.height > 0) return true;
+              }
+            }
+            return false;
+          }).catch(() => false);
+          if (hasQuitText) isGameNotQuit = true;
         } catch (e) {}
       }
 
-      if (isDashboard) {
-        if (bestState === STATES.UNINITIALIZED || bestState === STATES.WINBOX_LOGIN) {
+      if (isGameNotQuit) {
+        if (bestState !== STATES.IN_GAME) {
+          bestState = STATES.GAME_NOT_QUIT;
+          targetPage = p;
+        }
+      } else if (isDashboard) {
+        if (bestState === STATES.UNINITIALIZED || bestState === STATES.WINBOX_LOGIN || bestState === STATES.GAME_NOT_QUIT) {
           bestState = STATES.WINBOX_DASHBOARD;
           targetPage = p;
         }
@@ -317,152 +357,81 @@ async function evaluateState(browser, urls) {
   return { state: bestState, page: targetPage };
 }
 
-
-
 async function launchAccount(acctConfig) {
-  const { chrome, credentials, urls, platform, launchMethod, modulePrefix, useProxy, proxy } = acctConfig;
+  const { chrome, useProxy, proxy, credentials, urls, platform, launchMethod, modulePrefix } = acctConfig;
   const logger = { log: (msg) => console.log(`[${acctConfig.label}] ${msg}`), warn: (msg) => console.warn(`[${acctConfig.label}] ${msg}`), error: (msg) => console.error(`[${acctConfig.label}] ${msg}`) };
 
-  async function applyProxyAuth(p) {
-    if (proxy && proxy.server && proxy.username && proxy.password) {
-      logger.log("Refreshing proxy authentication...");
-      await p.authenticate({ username: proxy.username, password: proxy.password }).catch((e) => logger.warn(`Proxy auth failed: ${e.message}`));
-    }
-  }
-
   const prefix = modulePrefix || "BET";
+  let verifiedIp = "Direct / No Proxy";
 
   if (platform === "winbox" && (!credentials.email || !credentials.password)) {
       throw new Error("Missing Winbox credentials. Please set WINBOX_EMAIL and WINBOX_PASSWORD in .env");
   }
 
-  let browser;
-  if (launchMethod === "kameleo") {
-    logger.log("Launching via Kameleo Local API...");
-    const { KameleoLocalApiClient } = require('@kameleo/local-api-client');
-    const kameleoUrl = process.env.KAMELEO_API_URL || 'http://localhost:5050';
-    const client = new KameleoLocalApiClient({ basePath: kameleoUrl });
+  // --- EMBEDDED TAILSCALE PROXY HANDLING ---
+  let tscProxy = null;
+  if (proxy && proxy.type === "tailscale") {
+    logger.log("Initializing embedded Tailscale node...");
     try {
-      logger.log("Cleaning up any stale Kameleo profiles from previous runs...");
-      try {
-        const existingProfiles = await client.profile.listProfiles();
-        for (const p of existingProfiles) {
-          if (p.name && p.name.startsWith(`Bet-${acctConfig.label}`)) {
-            logger.log(`Stopping and deleting stale profile: ${p.name} (${p.id})`);
-            await client.profile.stopProfile(p.id).catch(() => {});
-            await client.profile.deleteProfile(p.id).catch(() => {});
-          }
-        }
-      } catch (cleanupErr) {
-        logger.warn(`Stale profile cleanup warning: ${cleanupErr.message}`);
-      }
-
-      logger.log("Searching for a Windows desktop Chrome fingerprint in Kameleo...");
-      const fingerprints = await client.fingerprint.searchFingerprints('desktop', 'windows', 'chrome');
-      if (!fingerprints || fingerprints.length === 0) {
-        throw new Error("No matching Windows desktop Chrome fingerprints found in Kameleo.");
-      }
-
-      const selectedFingerprint = fingerprints[0];
-      logger.log(`Selected fingerprint: ${selectedFingerprint.id} (${selectedFingerprint.os} - Chrome ${selectedFingerprint.browser.version})`);
-
-      let proxyConfig = undefined;
-      if (useProxy && proxy && proxy.server) {
-        logger.log(`Configuring Kameleo profile with proxy: ${proxy.server}`);
-        const url = require('url');
-        const parsed = url.parse(proxy.server);
-        const protocol = (parsed.protocol || 'http').replace(':', '');
-        const host = parsed.hostname || '127.0.0.1';
-        const port = parseInt(parsed.port, 10) || 80;
-
-        proxyConfig = {
-          value: protocol.startsWith('socks') ? 'socks5' : 'http',
-          extra: {
-            host: host,
-            port: port,
-            id: proxy.username || undefined,
-            secret: proxy.password || undefined
-          }
-        };
-      }
-
-      logger.log("Creating new transient Kameleo profile...");
-      const profile = await client.profile.createProfile({
-        fingerprintId: selectedFingerprint.id,
-        name: `Bet-${acctConfig.label}-${Date.now()}`,
-        proxy: proxyConfig
+      const { TSCProxy } = require("@tailscale/tscproxy");
+      const port = proxy.port || 1055;
+      const hostname = proxy.hostname || `puppeteer-${acctConfig.label.replace(/\s+/g, '-').toLowerCase()}`;
+      tscProxy = await TSCProxy.start({
+        authKey: proxy.authKey,
+        hostname,
+        socks5Addr: `127.0.0.1:${port}`,
+        args: proxy.exitNode ? [`--exit-node=${proxy.exitNode}`] : []
       });
-
-      const profileId = profile.id;
-      logger.log(`Kameleo profile created: ${profileId}`);
-
-      logger.log("Starting Kameleo profile...");
-      const windowSizeRaw = process.env[`${prefix}_WINDOW_SIZE`] || process.env.CHROME_WINDOW_SIZE || "900,1400";
-      const windowPositionRaw = process.env[`${prefix}_WINDOW_POSITION`] || process.env.CHROME_WINDOW_POSITION || "100,50";
-
-      const sizeParts = windowSizeRaw.split(',').map(x => parseInt(x.trim(), 10));
-      let width = sizeParts[0] || 900;
-      let height = sizeParts[1] || 1400;
-      width += Math.floor(Math.random() * 31) - 15;
-      height += Math.floor(Math.random() * 31) - 15;
-
-      const posParts = windowPositionRaw.split(',').map(x => parseInt(x.trim(), 10));
-      let posX = posParts[0] || 100;
-      let posY = posParts[1] || 50;
-      posX += Math.floor(Math.random() * 21) - 10;
-      posY += Math.floor(Math.random() * 21) - 10;
-
-      const launchArgs = [
-        `window-size=${width},${height}`,
-        `window-position=${posX},${posY}`
-      ];
-      await client.profile.startProfile(profileId, { arguments: launchArgs });
-
-      const wsUrl = `${kameleoUrl.replace(/^http/, 'ws')}/puppeteer/${profileId}`;
-      logger.log(`Connecting Puppeteer to websocket: ${wsUrl}`);
-      browser = await puppeteer.connect({
-        browserWSEndpoint: wsUrl,
-        defaultViewport: null
-      });
-      logger.log("Connected to Kameleo browser instance.");
-
-      browser.on('disconnected', async () => {
-        logger.log(`Browser disconnected. Stopping and deleting Kameleo profile: ${profileId}`);
-        try {
-          await client.profile.stopProfile(profileId).catch(() => {});
-          await client.profile.deleteProfile(profileId).catch(() => {});
-          logger.log(`Kameleo profile ${profileId} cleaned up successfully.`);
-        } catch (err) {
-          logger.error(`Error cleaning up Kameleo profile ${profileId}: ${err.message}`);
-        }
-      });
-
+      logger.log(`Tailscale proxy successfully started on socks5://127.0.0.1:${port}`);
+      proxy.server = `socks5://127.0.0.1:${port}`;
     } catch (err) {
-      logger.error(`Failed to launch via Kameleo: ${err.message}`);
+      logger.error(`Failed to start Tailscale proxy: ${err.message}`);
       throw err;
     }
-  } else if (launchMethod === "puppeteer") {
+  }
+
+  // --- PROXY COMMAND-LINE ARGUMENT FORMATTING ---
+  let formattedProxy = "";
+  if (proxy && proxy.server) {
+    let proxyUrl = proxy.server;
+    let scheme = "";
+    
+    // Extract protocol scheme if present (e.g., http://, socks5://)
+    const schemeMatch = proxyUrl.match(/^([a-zA-Z0-9+.-]+:\/\/)/);
+    if (schemeMatch) {
+      scheme = schemeMatch[1];
+      proxyUrl = proxyUrl.substring(scheme.length);
+    }
+    
+    // Handle wrapping of raw IPv6 hosts with port numbers in brackets
+    if (proxyUrl.includes(":") && proxyUrl.split(":").length > 2 && !proxyUrl.startsWith("[")) {
+      const lastColon = proxyUrl.lastIndexOf(":");
+      const host = proxyUrl.substring(0, lastColon);
+      const portPart = proxyUrl.substring(lastColon);
+      if (/^:\d+$/.test(portPart)) {
+        proxyUrl = `[${host}]${portPart}`;
+      }
+    }
+    
+    formattedProxy = scheme + proxyUrl;
+  }
+
+  let browser;
+  if (launchMethod === "puppeteer") {
       logger.log("Launching fresh browser via native Puppeteer...");
-      const puppeteerArgs = [
+      const launchArgs = [
         `--window-size=${process.env[`${prefix}_WINDOW_SIZE`] || process.env.CHROME_WINDOW_SIZE || "900,1400"}`,
         `--window-position=${process.env[`${prefix}_WINDOW_POSITION`] || process.env.CHROME_WINDOW_POSITION || "100,50"}`,
         ...chrome.extraArgs
       ];
-      if (proxy && proxy.server) {
-        let formattedProxy = proxy.server;
-        if (formattedProxy.includes(":") && formattedProxy.split(":").length > 2 && !formattedProxy.startsWith("[")) {
-          const lastColon = formattedProxy.lastIndexOf(":");
-          const host = formattedProxy.substring(0, lastColon);
-          const portPart = formattedProxy.substring(lastColon);
-          if (/^:\d+$/.test(portPart)) formattedProxy = `[${host}]${portPart}`;
-        }
-        puppeteerArgs.push(`--proxy-server=${formattedProxy}`);
+      if (formattedProxy) {
+        launchArgs.push(`--proxy-server=${formattedProxy}`);
       }
       browser = await puppeteer.launch({
           headless: false,
           defaultViewport: null,
           protocolTimeout: 30000,
-          args: puppeteerArgs,
+          args: launchArgs,
       });
   } else {
       try {
@@ -471,7 +440,10 @@ async function launchAccount(acctConfig) {
         logger.log("Connected to existing Chrome instance.");
       } catch (e) {
         logger.log("Chrome not found on debugging port. Spawning new instance...");
+        await killZombieChromeOnPort(chrome.remoteDebuggingPort, logger);
+        await sleep(500);
         
+        // Clean up stale lock file from previous force-killed sessions
         try {
           const lockFile = require("path").join(chrome.userDataDir, "lockfile");
           if (require("fs").existsSync(lockFile)) {
@@ -488,19 +460,13 @@ async function launchAccount(acctConfig) {
           `--window-position=${process.env[`${prefix}_WINDOW_POSITION`] || process.env.CHROME_WINDOW_POSITION || "100,50"}`,
           ...chrome.extraArgs,
         ];
-        if (proxy && proxy.server) {
-          let formattedProxy = proxy.server;
-          if (formattedProxy.includes(":") && formattedProxy.split(":").length > 2 && !formattedProxy.startsWith("[")) {
-            const lastColon = formattedProxy.lastIndexOf(":");
-            const host = formattedProxy.substring(0, lastColon);
-            const portPart = formattedProxy.substring(lastColon);
-            if (/^:\d+$/.test(portPart)) formattedProxy = `[${host}]${portPart}`;
-          }
+        if (formattedProxy) {
           chromeArgs.push(`--proxy-server=${formattedProxy}`);
         }
         const chromeProcess = spawn(chrome.executablePath, chromeArgs, { detached: true, stdio: "ignore" });
         chromeProcess.unref();
         
+        // Progressive backoff to wait for Chrome to start
         let connected = false;
         for (let attempt = 1; attempt <= 5; attempt++) {
             await sleep(2000 * attempt);
@@ -512,6 +478,53 @@ async function launchAccount(acctConfig) {
         }
         if (!connected) throw new Error("Failed to connect to newly spawned Chrome instance.");
       }
+  }
+
+  // --- TAILSCALE LIFECYCLE HOOK ---
+  if (browser && tscProxy) {
+    browser.tscProxy = tscProxy;
+    browser.on('disconnected', async () => {
+      logger.log("Browser disconnected, shutting down Tailscale proxy...");
+      await tscProxy.close().catch(() => {});
+    });
+  }
+
+  // --- GLOBAL EVENT-DRIVEN PROXY AUTHENTICATION ---
+  if (browser && proxy && proxy.server && proxy.username && proxy.password) {
+    logger.log("Setting up global proxy authentication listener...");
+    
+    // 1. Authenticate existing pages/tabs
+    const pages = await browser.pages().catch(() => []);
+    for (const p of pages) {
+      await p.authenticate({ username: proxy.username, password: proxy.password })
+        .catch((e) => logger.warn(`Proxy authentication failed on existing page: ${e.message}`));
+    }
+
+    // 2. Authenticate any newly created pages/tabs in the browser context dynamically
+    browser.on('targetcreated', async (target) => {
+      if (target.type() === 'page') {
+        try {
+          const p = await target.page();
+          if (p) {
+            await p.authenticate({ username: proxy.username, password: proxy.password })
+              .catch((e) => logger.warn(`Proxy authentication failed on new page: ${e.message}`));
+          }
+        } catch (e) {
+          // Ignore if target page is closed during initialization
+        }
+      }
+    });
+  }
+
+  // --- VERIFY EXTERNAL PROXY IP ---
+  if (useProxy) {
+    verifiedIp = await verifyProxyIp({
+      browser,
+      proxy,
+      label: acctConfig.label,
+      logger,
+      closeBrowserOnFailure: true
+    });
   }
 
   if (platform === "hippo" || platform === "directurl" || platform === "direct_url") {
@@ -531,7 +544,7 @@ async function launchAccount(acctConfig) {
       
       await checkPGpage(page, logger);
       
-      return { browser, page };
+      return { browser, page, ip: verifiedIp };
   }
 
   let mainLoopRetries = 0;
@@ -553,36 +566,37 @@ async function launchAccount(acctConfig) {
         logger.log(`Executing state: ${currentState}`);
         
         if (currentState === STATES.UNINITIALIZED) {
-          await applyProxyAuth(page);
-          logger.log("Navigating to winbox88my6...");
-          await page.goto(urls.login, { waitUntil: "domcontentloaded", timeout: TIMEOUTS.navigationWait }).catch(() => {});
-          logger.log("Waiting for login form to load...");
-          try {
-            await waitForSelectorInAnyFrame(page, SELECTORS.uid, TIMEOUTS.selectorWait);
-            logger.log("Login form detected. Waiting 3 seconds to settle...");
-            await sleep(3000);
-          } catch (err) {
-            logger.error(`Login form failed to load: ${err.message}`);
-          }
+          logger.log("Navigating to winboxmalay...");
+          await page.goto(urls.login, { waitUntil: "networkidle2", timeout: TIMEOUTS.navigationWait }).catch(() => {});
+          await sleep(1500);
         } else if (currentState === STATES.WINBOX_LOGIN) {
           logger.log("Handling WINBOX_LOGIN...");
-          await applyProxyAuth(page);
           for (const frame of page.frames()) {
-            if (!isRelevantFrame(frame)) continue;
             try {
-              const popupBtns = await callWithTimeout(frame.$$(SELECTORS.loginPopup), 2000, []);
+              const popupBtns = await frame.$$(SELECTORS.loginPopup);
               for (const btn of popupBtns) {
-                if ((await callWithTimeout(frame.evaluate(el => el.textContent, btn), 2000, "")).includes("Log In")) {
+                if ((await frame.evaluate(el => el.textContent, btn)).includes("Log In")) {
                   await btn.click(); await sleep(500); break;
                 }
               }
             } catch(e) {}
           }
           
-          let loginFrame = page;
-          for (const frame of page.frames()) {
-            if (!isRelevantFrame(frame)) continue;
-            if (await callWithTimeout(frame.$(SELECTORS.uid), 2000, null)) { loginFrame = frame; break; }
+          let loginFrame = null;
+          const maxWaitAttempts = 10;
+          for (let attempt = 1; attempt <= maxWaitAttempts; attempt++) {
+            for (const frame of page.frames()) {
+              if (await frame.$(SELECTORS.uid).catch(() => null)) {
+                loginFrame = frame;
+                break;
+              }
+            }
+            if (loginFrame) break;
+            await sleep(500);
+          }
+
+          if (!loginFrame) {
+            throw new Error(`Timeout waiting for login inputs (selector: ${SELECTORS.uid})`);
           }
           
           await loginFrame.$eval(SELECTORS.uid, el => el.value = "").catch(() => {});
@@ -592,37 +606,92 @@ async function launchAccount(acctConfig) {
           await sleep(500);
           
           const buttons = await loginFrame.$$("button");
+          let clicked = false;
           for (const button of buttons) {
             if ((await loginFrame.evaluate(el => el.textContent, button)).includes("Log In")) {
-              await button.click(); break;
+              await button.click();
+              clicked = true;
+              break;
             }
           }
-          logger.log("Login submitted. Waiting for dashboard or OTP verification...");
-          writeLoginTimestamp(acctConfig.label);
-          try {
-            const matched = await waitForAnySelectorInAnyFrame(
-              page,
-              [SELECTORS.myNav, '.EmailVerificationRoot', '.el-message--error', '.el-message-box'],
-              20000,
-              { visible: true }
-            );
-            logger.log(`Detected post-login element: "${matched.selector}"`);
-          } catch (err) {
-            logger.warn(`Timeout waiting for dashboard/OTP/error message after login: ${err.message}`);
+          if (!clicked) {
+            throw new Error("Could not find submit 'Log In' button in login frame");
           }
-          await sleep(3000);
+          logger.log("Login submitted. Waiting for dashboard...");
+          writeLoginTimestamp(acctConfig.label);
+          await sleep(TIMEOUTS.dashboardWait);
+        } else if (currentState === STATES.GAME_NOT_QUIT) {
+          logger.log("Handling GAME_NOT_QUIT...");
+          let quitClicked = false;
+          for (const frame of page.frames()) {
+            try {
+              quitClicked = await frame.evaluate(() => {
+                const redName = document.querySelector('.name.red');
+                if (redName && redName.textContent.trim() === 'Quit Game') {
+                  const rect = redName.getBoundingClientRect();
+                  if (rect.width > 0 && rect.height > 0) { redName.click(); return true; }
+                }
+                const elements = document.querySelectorAll('div, button, span, a');
+                for (const el of elements) {
+                  if (el.textContent.trim() === 'Quit Game' && el.children.length === 0) {
+                    const rect = el.getBoundingClientRect();
+                    if (rect.width > 0 && rect.height > 0) { el.click(); return true; }
+                  }
+                }
+                return false;
+              }).catch(() => false);
+
+              if (quitClicked) {
+                logger.log("Clicked 'Quit Game' element in frame. Waiting for exit confirmation dialog...");
+                break;
+              }
+            } catch (e) {}
+          }
+
+          if (quitClicked) {
+            await sleep(2000);
+            let confirmClicked = false;
+            for (const frame of page.frames()) {
+              try {
+                confirmClicked = await frame.evaluate(() => {
+                  const box = document.querySelector(".el-message-box");
+                  if (box) {
+                    const text = box.innerText || "";
+                    if (text.includes("Confirm exit") || text.includes("exit")) {
+                      const okBtn = box.querySelector(".el-message-box__btns button.el-button--primary") ||
+                                    box.querySelector(".el-message-box__btns button:last-child");
+                      if (okBtn) { okBtn.click(); return true; }
+                    }
+                  }
+                  return false;
+                }).catch(() => false);
+                if (confirmClicked) break;
+              } catch (e) {}
+            }
+            if (confirmClicked) {
+              logger.log("Clicked OK on the exit confirmation dialog.");
+            } else {
+              logger.warn("Exit confirmation dialog not found in any frame.");
+            }
+          }
+
+          await sleep(4000);
+          const nextResult = await evaluateState(browser, urls);
+          currentState = nextResult.state;
+          page = nextResult.page;
+          continue;
         } else if (currentState === STATES.WINBOX_DASHBOARD) {
           logger.log("Handling WINBOX_DASHBOARD...");
           
           let dialogHandled = false;
           for (const frame of page.frames()) {
             try {
-              const buttons = await callWithTimeout(frame.$$("button"), 3000, []);
+              const buttons = await frame.$$("button");
               let action = null;
               let matchedButton = null;
   
               for (const button of buttons) {
-                const text = await callWithTimeout(frame.evaluate((el) => el.textContent, button), 2000, "");
+                const text = await frame.evaluate((el) => el.textContent, button);
                 if (text.trim().includes("Quit Game")) {
                   matchedButton = button;
                   action = "quit";
@@ -664,10 +733,10 @@ async function launchAccount(acctConfig) {
             // Find and click the Pretty Gaming icon
             for (const frame of page.frames()) {
               try {
-                const pgIcon = await callWithTimeout(frame.$(SELECTORS.prettyGamingIcon), 2000, null);
+                const pgIcon = await frame.$(SELECTORS.prettyGamingIcon);
                 if (pgIcon) {
                   logger.log("Found Pretty Gaming icon. Clicking...");
-                  await callWithTimeout(frame.evaluate(el => el.click(), pgIcon), 5000).catch(() => {});
+                  await pgIcon.click();
                   gameClicked = true;
                   break;
                 }
@@ -689,16 +758,21 @@ async function launchAccount(acctConfig) {
         currentState = nextStateResult.state;
         if (nextStateResult.page && page !== nextStateResult.page) {
           page = nextStateResult.page;
-          await applyProxyAuth(page);
         }
       }
       
       if (currentState === STATES.IN_GAME) {
         logger.log("SUCCESS: Reached Pretty Gaming lobby!");
         
+        await checkPageErrors(page, logger);
+        
+        // Wait for the lobby to fully load and detect table data
         await checkPGpage(page, logger);
         
-        return { browser, page };
+        const { startNetworkWatchdog } = require("./network_watchdog");
+        startNetworkWatchdog(page, logger);
+        
+        return { browser, page, ip: verifiedIp };
       }
     } catch (err) {
       logger.error(`Error during launch/login attempt ${mainLoopRetries}: ${err.message}`);
@@ -717,7 +791,7 @@ async function launchAccount(acctConfig) {
   throw new Error("Failed to reach Pretty Gaming lobby after multiple attempts.");
 }
 
-module.exports = { launchAccount, buildAccountConfig };
+module.exports = { launchAccount, buildAccountConfig, checkPageErrors };
 
 if (require.main === module) {
   const accountIndex = parseInt(process.argv[2], 10) || 0;
