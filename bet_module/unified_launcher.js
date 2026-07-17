@@ -102,6 +102,8 @@ function readAccounts() {
 // ──────────────────────────────────────────────
 // Fetch per-account modes from Central Dashboard via HTTP
 // ──────────────────────────────────────────────
+let centralConnectionFailed = false;
+
 async function fetchModes() {
   try {
     const url = `${CENTRAL_URL}/api/launch-mode`;
@@ -109,9 +111,16 @@ async function fetchModes() {
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
     const data = await res.json();
     lastKnownModes = data.accounts || {};
+    if (centralConnectionFailed) {
+      console.log(`[Unified] Connected to Central Dashboard successfully.`);
+      centralConnectionFailed = false;
+    }
     return lastKnownModes;
   } catch (err) {
-    console.warn(`[Unified] Warning: Failed to fetch launch modes from Central (${err.message}). Using last known modes.`);
+    if (!centralConnectionFailed) {
+      console.warn(`[Unified] Warning: Failed to fetch launch modes from Central (${err.message}). Using last known modes.`);
+      centralConnectionFailed = true;
+    }
     return lastKnownModes;
   }
 }
