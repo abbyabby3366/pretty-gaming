@@ -412,14 +412,6 @@ async function reconcile() {
     process.exit(1);
   }
 
-  // Reset all launch modes back to PG (bet) on startup
-  try {
-    await fetch(`${CENTRAL_URL}/api/launch-mode/reset`, {
-      method: "POST",
-      signal: AbortSignal.timeout(3000)
-    }).catch(() => {});
-  } catch (e) { /* ignore */ }
-
   const modes = await fetchModes();
 
   console.log(`\x1b[36m[Unified] Starting unified launcher — ${runnableAccounts.length} account(s)\x1b[0m`);

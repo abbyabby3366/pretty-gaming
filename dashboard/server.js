@@ -226,6 +226,7 @@ const cumulativeProfitMap = {}; // keyed by moduleId (stable)
 const todayProfitMap = {};       // keyed by moduleId (stable)
 let snapshotAutoEnabled = true;  // toggle for hourly auto-snapshots
 const STALE_THRESHOLD_MS = 12000;
+const launchModes = {}; // in-memory per-account launch modes: { "0": "bet", "1": "wash", ... } — defaults to "bet" for all
 
 // Periodically purge stale modules and send WhatsApp alerts
 setInterval(() => {
@@ -1398,30 +1399,11 @@ function startDashboard(stateManager) {
       return;
     }
 
-    // Get / toggle launch mode per account (bet vs wash)
+    // Get / toggle launch mode per account (bet vs wash) — in-memory, defaults to "bet" on startup
     if (req.url === "/api/launch-mode" || req.url.startsWith("/api/launch-mode?")) {
-      const launchModeFile = path.join(__dirname, "launch_mode.json");
-
-      // Helper: read the accounts map from launch_mode.json
-      function readLaunchModes() {
-        try {
-          if (fs.existsSync(launchModeFile)) {
-            const data = JSON.parse(fs.readFileSync(launchModeFile, "utf-8"));
-            return data.accounts || {};
-          }
-        } catch (e) { /* ignore */ }
-        return {};
-      }
-
       if (req.method === "GET") {
-        try {
-          const accounts = readLaunchModes();
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ ok: true, accounts }));
-        } catch (e) {
-          res.writeHead(500, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ ok: false, error: e.message }));
-        }
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, accounts: launchModes }));
         return;
       }
       if (req.method === "POST") {
@@ -1440,11 +1422,8 @@ function startDashboard(stateManager) {
             return;
           }
 
-          const accounts = readLaunchModes();
-          const oldMode = accounts[index] || "bet";
-          accounts[index] = newMode;
-
-          fs.writeFileSync(launchModeFile, JSON.stringify({ accounts }, null, 2));
+          const oldMode = launchModes[index] || "bet";
+          launchModes[index] = newMode;
 
           // Look up account label for the notification
           let accountLabel = `Account ${index}`;
@@ -1479,27 +1458,13 @@ function startDashboard(stateManager) {
           }
 
           res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ ok: true, accounts }));
+          res.end(JSON.stringify({ ok: true, accounts: launchModes }));
         } catch (e) {
           res.writeHead(500, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok: false, error: e.message }));
         }
+        return;
       }
-    }
-
-    // Reset launch modes to default (bet)
-    if (req.url === "/api/launch-mode/reset" && req.method === "POST") {
-      try {
-        const launchModeFile = path.join(__dirname, "launch_mode.json");
-        fs.writeFileSync(launchModeFile, JSON.stringify({ accounts: {} }, null, 2));
-        console.log("[Central] Reset all launch modes back to default (bet) on launcher startup request.");
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true, accounts: {} }));
-      } catch (e) {
-        res.writeHead(500, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: false, error: e.message }));
-      }
-      return;
     }
 
     // Get / toggle auto-snapshot
