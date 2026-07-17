@@ -23,6 +23,7 @@ let browserPage = null;
 let browserInstance = null;
 let domCleanupInterval = null;
 let latestBalance = null;
+let latestChips = null;
 let isBetInProgress = false;
 let sessionRestartTimer = null;
 let isIntentionalRestart = false;
@@ -32,6 +33,17 @@ const initialAccountsPath = path.resolve(__dirname, "json", "bet_accounts.json")
 const initialAcctConfig = buildAccountConfig(ACCOUNT_INDEX, initialAccountsPath);
 let currentModuleLabel = `Node (${initialAcctConfig.platform})`;
 let currentAccountLabel = initialAcctConfig.label || `Account_${PORT}`;
+
+// Load initial chips from JSON file
+try {
+  const filepath = path.resolve(__dirname, "..", "utils", "chips_balances.json");
+  if (fs.existsSync(filepath)) {
+    const balances = JSON.parse(fs.readFileSync(filepath, 'utf8'));
+    if (balances[currentAccountLabel]) {
+      latestChips = balances[currentAccountLabel];
+    }
+  }
+} catch (e) {}
 
 function parseJSONBody(req) {
   return new Promise((resolve, reject) => {
@@ -50,12 +62,23 @@ function parseJSONBody(req) {
 }
 
 function sendHeartbeat() {
+  // Reload chips from file dynamically if available
+  try {
+    const filepath = path.resolve(__dirname, "..", "utils", "chips_balances.json");
+    if (fs.existsSync(filepath)) {
+      const balances = JSON.parse(fs.readFileSync(filepath, 'utf8'));
+      if (balances[currentAccountLabel]) {
+        latestChips = balances[currentAccountLabel];
+      }
+    }
+  } catch (e) {}
+
   const payload = {
     moduleId: MODULE_ID,
     baseUrl: BASE_URL,
     label: currentModuleLabel,
     accountIndex: ACCOUNT_INDEX,
-    accounts: [{ label: currentAccountLabel, isAcceptingBets: isBrowserReady, balance: latestBalance }]
+    accounts: [{ label: currentAccountLabel, isAcceptingBets: isBrowserReady, balance: latestBalance, chips: latestChips }]
   };
 
   fetch(`${CENTRAL_URL}/api/bet-module/heartbeat`, {
@@ -379,7 +402,21 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(503, { "Content-Type": "application/json" });
         return res.end(JSON.stringify({ ok: false, error: "Browser not ready" }));
       }
+      // Reload chips from file dynamically if available
+      try {
+        const filepath = path.resolve(__dirname, "..", "utils", "chips_balances.json");
+        if (fs.existsSync(filepath)) {
+          const balances = JSON.parse(fs.readFileSync(filepath, 'utf8'));
+          if (balances[currentAccountLabel]) {
+            latestChips = balances[currentAccountLabel];
+          }
+        }
+      } catch (e) {}
+
       const summary = await getBetSummaryToday();
+      if (summary) {
+        summary.chips = latestChips;
+      }
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true, summary }));
     } catch (e) {
@@ -498,7 +535,10 @@ async function initBrowser() {
       currentAccountLabel = acctConfig.label || `Account_${PORT}`;
       console.log(`\n[Bet Module] Starting browser launch sequence for ${currentAccountLabel} (Account Index: ${ACCOUNT_INDEX})...`);
       
-      const { browser, page } = await launchAccount(acctConfig);
+      const { browser, page, chips } = await launchAccount(acctConfig);
+      if (chips !== undefined && chips !== null) {
+        latestChips = chips;
+      }
       browserContext = browser;
       browserInstance = browser;
       browserPage = page;
@@ -619,7 +659,7 @@ async function handleShutdown(signal) {
       baseUrl: BASE_URL,
       label: currentModuleLabel,
       // Setting isAcceptingBets to false instantly pulls it out of the Round-Robin pool
-      accounts: [{ label: currentAccountLabel, isAcceptingBets: false, balance: latestBalance }]
+      accounts: [{ label: currentAccountLabel, isAcceptingBets: false, balance: latestBalance, chips: latestChips }]
     };
 
     await fetch(`${CENTRAL_URL}/api/bet-module/heartbeat`, {

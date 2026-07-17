@@ -510,6 +510,10 @@
                   <span class="metric-value" style="color: var(--green);">${typeof sum.balance === 'number' ? formatCurrency(sum.balance, cur) : sum.balance}</span>
                 </div>
                 <div class="metric-card">
+                  <span class="metric-label">Chips Balance</span>
+                  <span class="metric-value" style="color: var(--yellow);">${sum.chips !== undefined && sum.chips !== null ? (typeof sum.chips === 'number' ? formatCurrency(sum.chips, cur) : sum.chips) : '—'}</span>
+                </div>
+                <div class="metric-card">
                   <span class="metric-label">Today's Turnover</span>
                   <span class="metric-value">${formatCurrency(summaries.turnOver, cur)}</span>
                 </div>

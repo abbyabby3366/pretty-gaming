@@ -544,9 +544,21 @@ async function launchAccount(acctConfig) {
       
       await checkPGpage(page, logger);
       
-      return { browser, page, ip: verifiedIp };
+      let finalChips = null;
+      try {
+        const filepath = require('path').resolve(__dirname, "..", "utils", "chips_balances.json");
+        if (require('fs').existsSync(filepath)) {
+          const balances = JSON.parse(require('fs').readFileSync(filepath, 'utf8'));
+          if (balances[acctConfig.label]) {
+            finalChips = balances[acctConfig.label];
+          }
+        }
+      } catch (e) {}
+
+      return { browser, page, ip: verifiedIp, chips: finalChips };
   }
 
+  let chipsScraped = false;
   let mainLoopRetries = 0;
   while (mainLoopRetries < 3) {
     mainLoopRetries++;
@@ -683,72 +695,190 @@ async function launchAccount(acctConfig) {
         } else if (currentState === STATES.WINBOX_DASHBOARD) {
           logger.log("Handling WINBOX_DASHBOARD...");
           
-          let dialogHandled = false;
+          let dialogFrame = null;
+          let isPGDialog = false;
+          let isHRDialog = false;
+          let hasQuit = false;
+          let hasStart = false;
+          let matchedButton = null;
+
+          // Check if any Game Detail dialog is open
           for (const frame of page.frames()) {
             try {
               const buttons = await frame.$$("button");
-              let action = null;
-              let matchedButton = null;
-  
               for (const button of buttons) {
                 const text = await frame.evaluate((el) => el.textContent, button);
                 if (text.trim().includes("Quit Game")) {
+                  dialogFrame = frame;
+                  hasQuit = true;
                   matchedButton = button;
-                  action = "quit";
                   break;
                 } else if (text.trim().includes("Start Game")) {
+                  dialogFrame = frame;
+                  hasStart = true;
                   matchedButton = button;
-                  action = "start";
                   break;
                 }
               }
-  
-              if (action === "quit") {
-                logger.log("Found 'Quit Game' button. Clicking to exit previous session...");
-                await matchedButton.click().catch(() => {});
-                await sleep(4000);
-                dialogHandled = true;
-              } else if (action === "start") {
-                logger.log("Found 'Start Game' button. Clicking...");
-                const newTargetPromise = browser.waitForTarget((t) => t.opener() === page.target(), { timeout: TIMEOUTS.tabWait }).catch(() => null);
-                await matchedButton.click().catch(() => {});
-                
-                const newTarget = await newTargetPromise;
-                if (newTarget) {
-                  page = await newTarget.page();
-                  await sleep(2500);
+              if (dialogFrame) {
+                // Determine if this is Pretty Gaming or Hotroad dialog.
+                const gameIconSrc = await frame.evaluate(() => {
+                  const img = document.querySelector('.game-icon img, .GameDetailTitleIcon img[src*="detail.png"]');
+                  return img ? img.src : '';
+                });
+                if (gameIconSrc.includes('PRETY')) {
+                  isPGDialog = true;
+                } else {
+                  isHRDialog = true;
                 }
-                dialogHandled = true;
+                break;
               }
             } catch (e) {}
-            if (dialogHandled) break;
           }
-  
-          if (!dialogHandled) {
-            let gameClicked = false;
-            
-            // Wait for dashboard to settle
-            await sleep(1500);
-            
-            // Find and click the Pretty Gaming icon
-            for (const frame of page.frames()) {
+
+          if (dialogFrame) {
+            if (isHRDialog) {
+              logger.log("Hotroad dialog is open. Scraping chips balance...");
+              // Scrape chips balance
               try {
-                const pgIcon = await frame.$(SELECTORS.prettyGamingIcon);
-                if (pgIcon) {
-                  logger.log("Found Pretty Gaming icon. Clicking...");
-                  await pgIcon.click();
-                  gameClicked = true;
-                  break;
+                const scrapedChips = await dialogFrame.evaluate(() => {
+                  const items = document.querySelectorAll('.wallet-balance-item');
+                  for (const item of items) {
+                    const labelEl = item.querySelector('.label');
+                    if (labelEl && labelEl.textContent.includes('Chips')) {
+                      const amountEl = item.querySelector('.amount');
+                      if (amountEl) {
+                        const innerDiv = amountEl.querySelector('div');
+                        if (innerDiv) return innerDiv.textContent.trim();
+                        return amountEl.textContent.trim();
+                      }
+                    }
+                  }
+                  return null;
+                });
+                if (scrapedChips) {
+                  logger.log(`Parsed chips balance: ${scrapedChips}`);
+                  
+                  // Persist to json file
+                  try {
+                    const filepath = require('path').resolve(__dirname, "..", "utils", "chips_balances.json");
+                    let balances = {};
+                    if (require('fs').existsSync(filepath)) {
+                      balances = JSON.parse(require('fs').readFileSync(filepath, 'utf8'));
+                    }
+                    balances[acctConfig.label] = scrapedChips;
+                    require('fs').writeFileSync(filepath, JSON.stringify(balances, null, 2));
+                  } catch (e) {
+                    logger.error(`Error saving chips to JSON: ${e.message}`);
+                  }
                 }
-              } catch(e) {}
-              if (gameClicked) break;
+              } catch (e) {
+                logger.error(`Error scraping chips from Hotroad: ${e.message}`);
+              }
+
+              // Click the back button to close Hotroad dialog
+              logger.log("Clicking back button to exit Hotroad dialog...");
+              const clickedBack = await dialogFrame.evaluate(() => {
+                const backBtn = document.querySelector('.back-icon, img[src*="wb-back-page"]');
+                if (backBtn) {
+                  backBtn.click();
+                  return true;
+                }
+                return false;
+              }).catch(() => false);
+
+              if (clickedBack) {
+                logger.log("Successfully clicked back button on Hotroad dialog.");
+                chipsScraped = true;
+                await sleep(3000);
+              } else {
+                logger.warn("Could not find back button on Hotroad dialog. Trying to go back directly...");
+                const backBtn = await dialogFrame.$('.back-icon, img[src*="wb-back-page"]');
+                if (backBtn) {
+                  await backBtn.click();
+                  chipsScraped = true;
+                  await sleep(3000);
+                } else {
+                  logger.error("Failed to find back button. Reloading page...");
+                  await page.reload();
+                  await sleep(3000);
+                }
+              }
+            } else if (isPGDialog) {
+              if (!chipsScraped) {
+                logger.log("PG dialog is open, but we have not scraped chips from Hotroad yet. Going back...");
+                const clickedBack = await dialogFrame.evaluate(() => {
+                  const backBtn = document.querySelector('.back-icon, img[src*="wb-back-page"]');
+                  if (backBtn) { backBtn.click(); return true; }
+                  return false;
+                }).catch(() => false);
+                if (!clickedBack) {
+                  const backBtn = await dialogFrame.$('.back-icon, img[src*="wb-back-page"]');
+                  if (backBtn) await backBtn.click();
+                }
+                await sleep(3000);
+              } else {
+                if (hasQuit) {
+                  logger.log("Found 'Quit Game' button on PG dialog. Clicking to exit previous session...");
+                  await matchedButton.click().catch(() => {});
+                  await sleep(4000);
+                } else if (hasStart) {
+                  logger.log("Found 'Start Game' button on PG dialog. Clicking...");
+                  const newTargetPromise = browser.waitForTarget((t) => t.opener() === page.target(), { timeout: TIMEOUTS.tabWait }).catch(() => null);
+                  await matchedButton.click().catch(() => {});
+                  
+                  const newTarget = await newTargetPromise;
+                  if (newTarget) {
+                    page = await newTarget.page();
+                    await sleep(2500);
+                  }
+                }
+              }
             }
-            
-            if (gameClicked) {
-               logger.log("Waiting for game dialog to appear...");
-               await sleep(3000); 
+          } else {
+            // No dialog is open.
+            await sleep(1500);
+            if (!chipsScraped) {
+              logger.log("No dialog open and chips not scraped. Attempting to click Hotroad icon to get balance...");
+              let hotroadClicked = false;
+              for (const frame of page.frames()) {
+                try {
+                  const hrIcon = await frame.$('img[src*="ROAD/pc/cover"], img[src*="ROAD"]');
+                  if (hrIcon) {
+                    logger.log("Found Hotroad icon. Clicking...");
+                    await hrIcon.click();
+                    hotroadClicked = true;
+                    break;
+                  }
+                } catch (e) {}
+              }
+              if (hotroadClicked) {
+                logger.log("Waiting for Hotroad dialog to appear...");
+                await sleep(3000);
+              } else {
+                logger.warn("Could not find Hotroad icon. Defaulting to Pretty Gaming launch.");
+                chipsScraped = true; // Skip to prevent infinite loop
+              }
             } else {
-               logger.warn("Could not find Pretty Gaming icon in dashboard.");
+              logger.log("Chips already scraped. Clicking Pretty Gaming icon...");
+              let pgClicked = false;
+              for (const frame of page.frames()) {
+                try {
+                  const pgIcon = await frame.$(SELECTORS.prettyGamingIcon);
+                  if (pgIcon) {
+                    logger.log("Found Pretty Gaming icon. Clicking...");
+                    await pgIcon.click();
+                    pgClicked = true;
+                    break;
+                  }
+                } catch (e) {}
+              }
+              if (pgClicked) {
+                logger.log("Waiting for PG dialog to appear...");
+                await sleep(3000);
+              } else {
+                logger.warn("Could not find Pretty Gaming icon in dashboard.");
+              }
             }
           }
         }
@@ -772,7 +902,18 @@ async function launchAccount(acctConfig) {
         const { startNetworkWatchdog } = require("./network_watchdog");
         startNetworkWatchdog(page, logger);
         
-        return { browser, page, ip: verifiedIp };
+        let finalChips = null;
+        try {
+          const filepath = require('path').resolve(__dirname, "..", "utils", "chips_balances.json");
+          if (require('fs').existsSync(filepath)) {
+            const balances = JSON.parse(require('fs').readFileSync(filepath, 'utf8'));
+            if (balances[acctConfig.label]) {
+              finalChips = balances[acctConfig.label];
+            }
+          }
+        } catch (e) {}
+
+        return { browser, page, ip: verifiedIp, chips: finalChips };
       }
     } catch (err) {
       logger.error(`Error during launch/login attempt ${mainLoopRetries}: ${err.message}`);

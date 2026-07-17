@@ -576,7 +576,8 @@
                  }
 
                  const balanceText = a.balance != null ? `<span style="color:var(--text);margin-right:10px;">Balance: <strong style="color:var(--green)">${a.balance}</strong></span>` : '';
-                 acctHtml += `<div class="acct-row">${balanceText}<span style="color:${readyColor};font-weight:600;">${readyText}</span></div>`;
+                 const chipsText = a.chips != null ? `<span style="color:var(--text);margin-right:10px;">Chips: <strong style="color:var(--yellow)">${a.chips}</strong></span>` : '';
+                 acctHtml += `<div class="acct-row">${balanceText}${chipsText}<span style="color:${readyColor};font-weight:600;">${readyText}</span></div>`;
               }
             } else {
               acctHtml = `<div class="acct-row" style="color:var(--dim)">No accounts configured</div>`;
@@ -704,6 +705,18 @@
 
       // Check cooldown
       if (accountCooldowns[key] && Date.now() < accountCooldowns[key]) return;
+
+      if (mode === 'wash') {
+        const activeModule = currentActiveModules.find(m => String(m.accountIndex) === key);
+        const chipsVal = activeModule && activeModule.accounts && activeModule.accounts[0]
+          ? parseFloat(String(activeModule.accounts[0].chips).replace(/[^0-9.]/g, ''))
+          : 0;
+
+        if (isNaN(chipsVal) || chipsVal <= 0) {
+          alert("Cannot switch to Wash (HR) mode: Chips balance is 0 or not found.");
+          return;
+        }
+      }
 
       const labels = { bet: 'PG', wash: 'Hotroad' };
       if (!confirm(`Switch Account ${index} from ${labels[currentMode]} to ${labels[mode]}?\n\nThe launcher will pick up the change within ~10 seconds.`)) return;

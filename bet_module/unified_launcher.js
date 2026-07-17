@@ -17,6 +17,8 @@ const path = require("path");
 const fs = require("fs");
 const util = require("util");
 const execAsync = util.promisify(exec);
+const { MongoClient } = require("mongodb");
+const os = require("os");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
 const ACCOUNTS_FILE = path.resolve(__dirname, "json", "bet_accounts.json");
@@ -30,6 +32,47 @@ const defaultHotroadPath = path.resolve(__dirname, '..', 'hotroad-v4');
 const hotroadPath = process.env.HOTROAD_PATH
   ? path.resolve(__dirname, '..', process.env.HOTROAD_PATH)
   : defaultHotroadPath;
+
+// MongoDB Connection
+const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017";
+const MONGODB_NAME = process.env.MONGODB_NAME || "neuron_baccarat";
+let dbCollectionHR = null;
+
+async function initDB() {
+  try {
+    const client = new MongoClient(MONGODB_URI);
+    await client.connect();
+    const db = client.db(MONGODB_NAME);
+    dbCollectionHR = db.collection("HOTROAD_BETS");
+    console.log("[Unified] Connected to MongoDB for Hotroad bets tracking.");
+  } catch (err) {
+    console.error("[Unified] Failed to connect to MongoDB:", err.message);
+  }
+}
+
+// Wash Sessions Helpers
+const WASH_SESSIONS_FILE = path.resolve(__dirname, "json", "wash_sessions.json");
+
+function readWashSessions() {
+  try {
+    if (fs.existsSync(WASH_SESSIONS_FILE)) {
+      return JSON.parse(fs.readFileSync(WASH_SESSIONS_FILE, "utf8"));
+    }
+  } catch (e) {
+    console.error("[Unified] Failed to read wash sessions:", e.message);
+  }
+  return {};
+}
+
+function writeWashSessions(sessions) {
+  try {
+    const dir = path.dirname(WASH_SESSIONS_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(WASH_SESSIONS_FILE, JSON.stringify(sessions, null, 2), "utf8");
+  } catch (e) {
+    console.error("[Unified] Failed to write wash sessions:", e.message);
+  }
+}
 
 // Track per-account state: { mode, child, port }
 const accountState = new Map(); // key: originalIndex (number)
@@ -328,11 +371,114 @@ async function reconcile() {
   const washAccounts = [];
   const newWashIndices = [];
 
+  let sessions = readWashSessions();
+
   // Assign ports: each runnable account gets a sequential port
   for (let i = 0; i < runnableAccounts.length; i++) {
     const acct = runnableAccounts[i];
     const port = BASE_PORT + i;
-    const mode = getAccountMode(modes, acct.originalIndex);
+    let mode = getAccountMode(modes, acct.originalIndex);
+
+    if (mode === "wash") {
+      // 1. Initialize or check wash session
+      let session = sessions[String(acct.originalIndex)];
+      if (!session) {
+        let chips = 0;
+        try {
+          const chipsFile = path.resolve(__dirname, "..", "utils", "chips_balances.json");
+          if (fs.existsSync(chipsFile)) {
+            const balances = JSON.parse(fs.readFileSync(chipsFile, "utf8"));
+            const label = acct.label || `Account ${acct.originalIndex}`;
+            if (balances[label]) {
+              chips = parseFloat(String(balances[label]).replace(/[^0-9.]/g, "")) || 0;
+            }
+          }
+        } catch (e) {}
+
+        // Safety: don't start wash with 0 chips — switch back to bet
+        if (chips <= 0) {
+          console.log(`[Unified] ⚠ ${acct.label || `Account ${acct.originalIndex}`}: Chips balance is 0, cannot start wash. Forcing back to bet mode.`);
+          try {
+            await fetch(`${CENTRAL_URL}/api/launch-mode`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ index: acct.originalIndex, mode: "bet" })
+            });
+          } catch (err) {}
+          mode = "bet";
+        } else {
+          session = {
+            washStartTime: new Date().toISOString(),
+            initialChips: chips,
+            targetTurnover: parseFloat((chips * 1.10).toFixed(2))
+          };
+          sessions[String(acct.originalIndex)] = session;
+          writeWashSessions(sessions);
+          console.log(`[Unified] Started new Wash Session for ${acct.label || `Account ${acct.originalIndex}`}: Initial Chips = ${chips}, Target Turnover = ${session.targetTurnover}`);
+        }
+      }
+
+      // 2. Query accumulated turnover in MongoDB (only if session is active)
+      if (mode === "wash" && session) {
+        let accumulatedTurnover = 0;
+        if (dbCollectionHR) {
+          try {
+            const label = acct.label || `Account ${acct.originalIndex}`;
+            const hrEnv = readHotroadEnvFile();
+            const washPort = process.env.WASH_BET_PORT || hrEnv.BET_PORT || "5001";
+            const query = {
+              $or: [
+                { targetModuleId: label },
+                { targetModule: label },
+                { targetModuleId: `bet-${os.hostname()}-${washPort}` }
+              ],
+              time: { $gte: session.washStartTime },
+              outcome: { $in: ["SUCCESS", "WRONG_AMOUNT"] }
+            };
+            const bets = await dbCollectionHR.find(query).toArray();
+            for (const b of bets) {
+              const amt = parseFloat(String(b.actualBetAmount || "0").replace(/[^0-9.]/g, "")) || 0;
+              const isTiePush = (b.roundOutcome === "T" && !(b.target || "").includes("Tie"));
+              if (!isTiePush) {
+                const isBankerWin = (b.roundOutcome === "B" && (b.target || "").includes("Banker"));
+                const actualEffTurnover = isBankerWin ? amt * 0.95 : amt;
+                accumulatedTurnover += actualEffTurnover;
+              }
+            }
+          } catch (err) {
+            console.error(`[Unified] Failed to query accumulated turnover for ${acct.label}:`, err.message);
+          }
+        }
+
+        console.log(`[Unified] ${acct.label || `Account ${acct.originalIndex}`} Wash Progress: ${accumulatedTurnover.toFixed(2)} / ${session.targetTurnover}`);
+
+        // 3. Check if target met
+        if (accumulatedTurnover >= session.targetTurnover) {
+          console.log(`[Unified] 🎉 Wash target met for ${acct.label || `Account ${acct.originalIndex}`}: ${accumulatedTurnover.toFixed(2)} >= ${session.targetTurnover}. Switching back to PG (bet) mode...`);
+          
+          try {
+            await fetch(`${CENTRAL_URL}/api/launch-mode`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ index: acct.originalIndex, mode: "bet" })
+            });
+          } catch (err) {
+            console.error(`[Unified] Failed to update Central Dashboard mode:`, err.message);
+          }
+          
+          mode = "bet";
+          delete sessions[String(acct.originalIndex)];
+          writeWashSessions(sessions);
+        }
+      }
+    } else {
+      // If it's in bet mode, clear any leftover wash session
+      if (sessions[String(acct.originalIndex)]) {
+        console.log(`[Unified] Clearing leftover Wash Session for ${acct.label || `Account ${acct.originalIndex}`}`);
+        delete sessions[String(acct.originalIndex)];
+        writeWashSessions(sessions);
+      }
+    }
 
     if (mode === "wash") {
       washAccounts.push(acct);
@@ -462,6 +608,7 @@ async function reconcile() {
 // Main
 // ──────────────────────────────────────────────
 (async function main() {
+  await initDB();
   const runnableAccounts = readAccounts();
 
   if (runnableAccounts.length === 0) {
