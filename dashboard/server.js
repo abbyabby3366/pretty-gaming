@@ -1467,6 +1467,23 @@ function startDashboard(stateManager) {
       }
     }
 
+    // Reset launch modes in-memory back to PG (bet) on startup
+    if (req.url === "/api/launch-mode/reset" && req.method === "POST") {
+      try {
+        for (const key of Object.keys(launchModes)) {
+          delete launchModes[key];
+        }
+        console.log("[Central] Reset all in-memory launch modes back to default (bet) on launcher startup request.");
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, accounts: launchModes }));
+      } catch (e) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+      return;
+    }
+
+
     // Get / toggle auto-snapshot
     if (req.url === "/api/snapshot-auto") {
       if (req.method === "GET") {

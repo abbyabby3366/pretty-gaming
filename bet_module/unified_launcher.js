@@ -1,14 +1,14 @@
 /**
  * unified_launcher.js - Per-account launch mode manager.
  * 
- * Reads bet_accounts.json for accounts with "run": true, then checks
- * launch_mode.json to determine each account's mode ("bet" or "wash").
+ * Reads bet_accounts.json for accounts with "run": true, then fetches
+ * each account's mode ("bet" or "wash") from the Central Dashboard API.
  *
  * - "bet" accounts are spawned directly via PG's server.js
  * - "wash" accounts are synced to Hotroad's bet_accounts.json and spawned
  *   via Hotroad's launcher.js
  *
- * Polls launch_mode.json every 10 seconds and hot-swaps individual accounts
+ * Polls the Central Dashboard every 10 seconds and hot-swaps individual accounts
  * when their mode changes.
  */
 
@@ -411,6 +411,14 @@ async function reconcile() {
     console.error("[Unified] No accounts with \"run\": true found in bet_accounts.json");
     process.exit(1);
   }
+
+  // Reset all launch modes back to PG (bet) on startup
+  try {
+    await fetch(`${CENTRAL_URL}/api/launch-mode/reset`, {
+      method: "POST",
+      signal: AbortSignal.timeout(3000)
+    }).catch(() => {});
+  } catch (e) { /* ignore */ }
 
   const modes = await fetchModes();
 
