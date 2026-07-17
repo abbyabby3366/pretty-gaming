@@ -1484,8 +1484,22 @@ function startDashboard(stateManager) {
           res.writeHead(500, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok: false, error: e.message }));
         }
-        return;
       }
+    }
+
+    // Reset launch modes to default (bet)
+    if (req.url === "/api/launch-mode/reset" && req.method === "POST") {
+      try {
+        const launchModeFile = path.join(__dirname, "launch_mode.json");
+        fs.writeFileSync(launchModeFile, JSON.stringify({ accounts: {} }, null, 2));
+        console.log("[Central] Reset all launch modes back to default (bet) on launcher startup request.");
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, accounts: {} }));
+      } catch (e) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+      return;
     }
 
     // Get / toggle auto-snapshot
