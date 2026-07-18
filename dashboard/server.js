@@ -282,6 +282,8 @@ function resolveBetModuleTarget() {
     // Exclude wash-mode modules from bet routing
     if (m.isWashMode) return false;
     // Exclude modules whose account has been toggled to wash (even if heartbeat still active)
+    const mLabel = m.accounts && m.accounts[0] ? m.accounts[0].label : null;
+    if (mLabel && launchModes[mLabel] === "wash") return false;
     if (m.accountIndex != null && launchModes[String(m.accountIndex)] === "wash") return false;
     // Timeout stuck busy modules (e.g. > 60s)
     if (m.isBusy && m.busySince && now - m.busySince > 60000) {
@@ -1418,41 +1420,46 @@ function startDashboard(stateManager) {
         try {
           const body = await parseJSONBody(req);
           const index = String(body.index);
+          const label = body.label;
           const newMode = body.mode;
           if (newMode !== "bet" && newMode !== "wash") {
             res.writeHead(400, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ ok: false, error: "Invalid mode. Must be 'bet' or 'wash'." }));
             return;
           }
-          if (index == null || index === "undefined") {
+          if ((index == null || index === "undefined") && !label) {
             res.writeHead(400, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ ok: false, error: "Missing 'index' field." }));
+            res.end(JSON.stringify({ ok: false, error: "Missing 'index' or 'label' field." }));
             return;
           }
 
-          const oldMode = launchModes[index] || "bet";
-          launchModes[index] = newMode;
+          const key = label || index;
+          const oldMode = launchModes[key] || "bet";
+          launchModes[key] = newMode;
 
           // Look up account label for the notification
-          let accountLabel = `Account ${index}`;
-          try {
-            const acctFile = path.resolve(__dirname, "..", "bet_module", "json", "bet_accounts.json");
-            if (fs.existsSync(acctFile)) {
-              const accts = JSON.parse(fs.readFileSync(acctFile, "utf-8"));
-              const idx = parseInt(index, 10);
-              if (accts[idx] && accts[idx].label) accountLabel = accts[idx].label;
-            }
-          } catch (e) { /* ignore */ }
+          let accountLabel = label || `Account ${index}`;
+          if (!label) {
+            try {
+              const acctFile = path.resolve(__dirname, "..", "bet_module", "json", "bet_accounts.json");
+              if (fs.existsSync(acctFile)) {
+                const accts = JSON.parse(fs.readFileSync(acctFile, "utf-8"));
+                const idx = parseInt(index, 10);
+                if (accts[idx] && accts[idx].label) accountLabel = accts[idx].label;
+              }
+            } catch (e) { /* ignore */ }
+          }
 
           const modeLabels = { bet: "PG", wash: "Hotroad" };
-          console.log(`[Central] Launch mode for ${accountLabel} (index ${index}): ${oldMode} → ${newMode}`);
+          console.log(`[Central] Launch mode for ${accountLabel} (${key}): ${oldMode} → ${newMode}`);
 
           // Immediately mark the affected module as non-routable so no bets
           // are dispatched during the ~10s window before the launcher kills it.
           if (oldMode !== newMode) {
             const idx = parseInt(index, 10);
             for (const [, m] of activeModules) {
-              if (m.accountIndex === idx) {
+              const mLabel = m.accounts && m.accounts[0] ? m.accounts[0].label : null;
+              if ((label && mLabel === label) || (!label && m.accountIndex === idx)) {
                 if (m.accounts) {
                   for (const a of m.accounts) a.isAcceptingBets = false;
                 }
@@ -1461,7 +1468,7 @@ function startDashboard(stateManager) {
               }
             }
 
-            sendWhatsAppNotification(`[MODE SWITCH] ${accountLabel} (index ${index}): ${modeLabels[oldMode]} → ${modeLabels[newMode]}`)
+            sendWhatsAppNotification(`[MODE SWITCH] ${accountLabel}: ${modeLabels[oldMode]} → ${modeLabels[newMode]}`)
               .catch(err => console.error("WhatsApp notification failed:", err.message));
           }
 

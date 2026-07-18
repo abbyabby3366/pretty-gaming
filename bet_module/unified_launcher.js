@@ -168,7 +168,10 @@ async function fetchModes() {
   }
 }
 
-function getAccountMode(modes, index) {
+function getAccountMode(modes, index, label) {
+  if (label && (modes[label] === "bet" || modes[label] === "wash")) {
+    return modes[label];
+  }
   const mode = modes[String(index)];
   if (mode === "bet" || mode === "wash") return mode;
   return "bet"; // default
@@ -377,7 +380,8 @@ async function reconcile() {
   for (let i = 0; i < runnableAccounts.length; i++) {
     const acct = runnableAccounts[i];
     const port = BASE_PORT + i;
-    let mode = getAccountMode(modes, acct.originalIndex);
+    const label = acct.label || `Account ${acct.originalIndex}`;
+    let mode = getAccountMode(modes, acct.originalIndex, label);
 
     if (mode === "wash") {
       // 1. Initialize or check wash session
@@ -388,7 +392,6 @@ async function reconcile() {
           const chipsFile = path.resolve(__dirname, "..", "utils", "chips_balances.json");
           if (fs.existsSync(chipsFile)) {
             const balances = JSON.parse(fs.readFileSync(chipsFile, "utf8"));
-            const label = acct.label || `Account ${acct.originalIndex}`;
             if (balances[label]) {
               chips = parseFloat(String(balances[label]).replace(/[^0-9.]/g, "")) || 0;
             }
@@ -397,12 +400,12 @@ async function reconcile() {
 
         // Safety: don't start wash with 0 chips — switch back to bet
         if (chips <= 0) {
-          console.log(`[Unified] ⚠ ${acct.label || `Account ${acct.originalIndex}`}: Chips balance is 0, cannot start wash. Forcing back to bet mode.`);
+          console.log(`[Unified] ⚠ ${label}: Chips balance is 0, cannot start wash. Forcing back to bet mode.`);
           try {
             await fetch(`${CENTRAL_URL}/api/launch-mode`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ index: acct.originalIndex, mode: "bet" })
+              body: JSON.stringify({ index: acct.originalIndex, mode: "bet", label })
             });
           } catch (err) {}
           mode = "bet";
@@ -414,7 +417,7 @@ async function reconcile() {
           };
           sessions[String(acct.originalIndex)] = session;
           writeWashSessions(sessions);
-          console.log(`[Unified] Started new Wash Session for ${acct.label || `Account ${acct.originalIndex}`}: Initial Chips = ${chips}, Target Turnover = ${session.targetTurnover}`);
+          console.log(`[Unified] Started new Wash Session for ${label}: Initial Chips = ${chips}, Target Turnover = ${session.targetTurnover}`);
         }
       }
 
@@ -454,13 +457,13 @@ async function reconcile() {
 
         // 3. Check if target met
         if (accumulatedTurnover >= session.targetTurnover) {
-          console.log(`[Unified] 🎉 Wash target met for ${acct.label || `Account ${acct.originalIndex}`}: ${accumulatedTurnover.toFixed(2)} >= ${session.targetTurnover}. Switching back to PG (bet) mode...`);
+          console.log(`[Unified] 🎉 Wash target met for ${label}: ${accumulatedTurnover.toFixed(2)} >= ${session.targetTurnover}. Switching back to PG (bet) mode...`);
           
           try {
             await fetch(`${CENTRAL_URL}/api/launch-mode`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ index: acct.originalIndex, mode: "bet" })
+              body: JSON.stringify({ index: acct.originalIndex, mode: "bet", label })
             });
           } catch (err) {
             console.error(`[Unified] Failed to update Central Dashboard mode:`, err.message);
@@ -630,8 +633,9 @@ async function reconcile() {
   console.log(`[Unified] Polling Central Dashboard (${CENTRAL_URL}) every ${POLL_INTERVAL_MS / 1000}s for mode changes.`);
 
   runnableAccounts.forEach(acct => {
-    const mode = getAccountMode(modes, acct.originalIndex);
-    console.log(`  • ${acct.label || `Account ${acct.originalIndex}`} → ${mode === "wash" ? "Hotroad" : "PG"}`);
+    const label = acct.label || `Account ${acct.originalIndex}`;
+    const mode = getAccountMode(modes, acct.originalIndex, label);
+    console.log(`  • ${label} → ${mode === "wash" ? "Hotroad" : "PG"}`);
   });
   console.log("");
 

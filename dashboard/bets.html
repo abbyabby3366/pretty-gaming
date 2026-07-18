@@ -600,15 +600,17 @@
 
             // Per-account launch mode toggle
             const acctIdx = m.accountIndex;
+            const acctLabel = m.accounts && m.accounts[0] ? m.accounts[0].label : null;
             let toggleHtml = '';
-            if (acctIdx != null) {
-              const acctMode = (launchModes[String(acctIdx)] || 'bet');
-              const cooldownKey = String(acctIdx);
+            if (acctIdx != null && acctLabel) {
+              const acctMode = (launchModes[acctLabel] || launchModes[String(acctIdx)] || 'bet');
+              const cooldownKey = acctLabel;
               const isOnCooldown = accountCooldowns[cooldownKey] && Date.now() < accountCooldowns[cooldownKey];
               const disabledClass = isOnCooldown ? ' disabled' : '';
+              const safeLabel = acctLabel.replace(/'/g, "\\'");
               toggleHtml = `<div class="launch-toggle${disabledClass}" title="Switch launch mode for this account">
-                <span class="lt-opt ${acctMode === 'bet' ? 'active-bet' : 'inactive'}" onclick="setAccountMode(${acctIdx}, 'bet')">PG</span>
-                <span class="lt-opt ${acctMode === 'wash' ? 'active-wash' : 'inactive'}" onclick="setAccountMode(${acctIdx}, 'wash')">HR</span>
+                <span class="lt-opt ${acctMode === 'bet' ? 'active-bet' : 'inactive'}" onclick="setAccountMode(${acctIdx}, 'bet', '${safeLabel}')">PG</span>
+                <span class="lt-opt ${acctMode === 'wash' ? 'active-wash' : 'inactive'}" onclick="setAccountMode(${acctIdx}, 'wash', '${safeLabel}')">HR</span>
               </div>`;
             }
 
@@ -698,16 +700,19 @@
       }
     }
 
-    async function setAccountMode(index, mode) {
-      const key = String(index);
-      const currentMode = launchModes[key] || 'bet';
+    async function setAccountMode(index, mode, label) {
+      const key = label || String(index);
+      const currentMode = launchModes[key] || launchModes[String(index)] || 'bet';
       if (mode === currentMode) return;
 
       // Check cooldown
       if (accountCooldowns[key] && Date.now() < accountCooldowns[key]) return;
 
       if (mode === 'wash') {
-        const activeModule = currentActiveModules.find(m => String(m.accountIndex) === key);
+        const activeModule = currentActiveModules.find(m => {
+          const mLabel = m.accounts && m.accounts[0] ? m.accounts[0].label : null;
+          return mLabel === key || String(m.accountIndex) === String(index);
+        });
         const chipsVal = activeModule && activeModule.accounts && activeModule.accounts[0]
           ? parseFloat(String(activeModule.accounts[0].chips).replace(/[^0-9.]/g, ''))
           : 0;
@@ -719,18 +724,18 @@
       }
 
       const labels = { bet: 'PG', wash: 'Hotroad' };
-      if (!confirm(`Switch Account ${index} from ${labels[currentMode]} to ${labels[mode]}?\n\nThe launcher will pick up the change within ~10 seconds.`)) return;
+      if (!confirm(`Switch ${label || 'Account ' + index} from ${labels[currentMode]} to ${labels[mode]}?\n\nThe launcher will pick up the change within ~10 seconds.`)) return;
 
       try {
         const res = await fetch('/api/launch-mode', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ index, mode })
+          body: JSON.stringify({ index, mode, label })
         });
         const data = await res.json();
         if (data.ok) {
           launchModes = data.accounts || {};
-          showLaunchToast(`Account ${index} → ${labels[mode]} — picks up in ~10s`);
+          showLaunchToast(`${label || 'Account ' + index} → ${labels[mode]} — picks up in ~10s`);
           // Start per-account cooldown
           accountCooldowns[key] = Date.now() + COOLDOWN_MS;
           // Force re-render to update toggle state
