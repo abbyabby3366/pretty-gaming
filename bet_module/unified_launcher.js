@@ -17,7 +17,6 @@ const path = require("path");
 const fs = require("fs");
 const util = require("util");
 const execAsync = util.promisify(exec);
-const { MongoClient } = require("mongodb");
 const os = require("os");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
@@ -32,23 +31,6 @@ const defaultHotroadPath = path.resolve(__dirname, '..', 'hotroad-v4');
 const hotroadPath = process.env.HOTROAD_PATH
   ? path.resolve(__dirname, '..', process.env.HOTROAD_PATH)
   : defaultHotroadPath;
-
-// MongoDB Connection
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017";
-const MONGODB_NAME = process.env.MONGODB_NAME || "neuron_baccarat";
-let dbCollectionHR = null;
-
-async function initDB() {
-  try {
-    const client = new MongoClient(MONGODB_URI);
-    await client.connect();
-    const db = client.db(MONGODB_NAME);
-    dbCollectionHR = db.collection("HOTROAD_BETS");
-    console.log("[Unified] Connected to MongoDB for Hotroad bets tracking.");
-  } catch (err) {
-    console.error("[Unified] Failed to connect to MongoDB:", err.message);
-  }
-}
 
 // Wash Sessions Helpers
 const WASH_SESSIONS_FILE = path.resolve(__dirname, "json", "wash_sessions.json");
@@ -419,36 +401,23 @@ async function reconcile() {
         }
       }
 
-      // 2. Query accumulated turnover in MongoDB (only if session is active)
+      // 2. Query accumulated turnover from Hotroad bet module (only if session is active)
       if (mode === "wash" && session) {
         let accumulatedTurnover = 0;
-        if (dbCollectionHR) {
-          try {
-            const label = acct.label || `Account ${acct.originalIndex}`;
-            const hrEnv = readHotroadEnvFile();
-            const washPort = process.env.WASH_BET_PORT || hrEnv.BET_PORT || "5001";
-            const query = {
-              $or: [
-                { targetModuleId: label },
-                { targetModule: label },
-                { targetModuleId: `bet-${os.hostname()}-${washPort}` }
-              ],
-              time: { $gte: session.washStartTime },
-              outcome: { $in: ["SUCCESS", "WRONG_AMOUNT"] }
-            };
-            const bets = await dbCollectionHR.find(query).toArray();
-            for (const b of bets) {
-              const amt = parseFloat(String(b.actualBetAmount || "0").replace(/[^0-9.]/g, "")) || 0;
-              const isTiePush = (b.roundOutcome === "T" && !(b.target || "").includes("Tie"));
-              if (!isTiePush) {
-                const isBankerWin = (b.roundOutcome === "B" && (b.target || "").includes("Banker"));
-                const actualEffTurnover = isBankerWin ? amt * 0.95 : amt;
-                accumulatedTurnover += actualEffTurnover;
-              }
-            }
-          } catch (err) {
-            console.error(`[Unified] Failed to query accumulated turnover for ${acct.label}:`, err.message);
+        try {
+          const hrEnv = readHotroadEnvFile();
+          const washBasePort = parseInt(process.env.WASH_BET_PORT || hrEnv.BET_PORT || "5001", 10);
+          // The wash account's port = base + its position in the wash list
+          const washPort = washBasePort + washAccounts.length; // current wash index (before push)
+          const statsRes = await fetch(`http://127.0.0.1:${washPort}/api/wash-stats`, {
+            signal: AbortSignal.timeout(3000)
+          });
+          if (statsRes.ok) {
+            const statsData = await statsRes.json();
+            accumulatedTurnover = statsData.tempAccumulatedTurnover || 0;
           }
+        } catch (err) {
+          // Bet module may not be running yet, silently ignore
         }
 
         console.log(`[Unified] ${acct.label || `Account ${acct.originalIndex}`} Wash Progress: ${accumulatedTurnover.toFixed(2)} / ${session.targetTurnover}`);
@@ -609,7 +578,6 @@ async function reconcile() {
 // Main
 // ──────────────────────────────────────────────
 (async function main() {
-  await initDB();
   const runnableAccounts = readAccounts();
 
   if (runnableAccounts.length === 0) {
