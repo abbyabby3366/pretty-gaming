@@ -417,6 +417,7 @@ async function launchAccount(acctConfig) {
   }
 
   let browser;
+  let freshlySpawned = false;
   if (launchMethod === "puppeteer") {
       logger.log("Launching fresh browser via native Puppeteer...");
       const launchArgs = [
@@ -440,6 +441,7 @@ async function launchAccount(acctConfig) {
         logger.log("Connected to existing Chrome instance.");
       } catch (e) {
         logger.log("Chrome not found on debugging port. Spawning new instance...");
+        freshlySpawned = true;
         await killZombieChromeOnPort(chrome.remoteDebuggingPort, logger);
         await sleep(500);
         
@@ -567,6 +569,24 @@ async function launchAccount(acctConfig) {
     if (!page) { 
         page = await browser.newPage(); 
         currentState = STATES.UNINITIALIZED; 
+    }
+
+    // If Chrome was freshly spawned (not reconnected), force full login flow.
+    // This ensures chips are always scraped from the Hotroad dialog on the
+    // Winbox dashboard, even if Chrome restored previous session tabs.
+    if (freshlySpawned && currentState === STATES.IN_GAME) {
+      logger.log("Chrome was freshly spawned but detected IN_GAME (session restored). Forcing full login flow...");
+      // Close any restored game pages so we start clean
+      const allPages = await browser.pages();
+      for (const p of allPages) {
+        const pUrl = p.url() || "";
+        if (urls.pgLobby.some(domain => pUrl.includes(domain))) {
+          await p.close().catch(() => {});
+        }
+      }
+      page = (await browser.pages())[0] || await browser.newPage();
+      currentState = STATES.UNINITIALIZED;
+      freshlySpawned = false; // only force once
     }
     
     logger.log(`Initial state detected: ${currentState}`);
