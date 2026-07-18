@@ -385,7 +385,12 @@ async function reconcile() {
             await fetch(`${CENTRAL_URL}/api/launch-mode`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ index: acct.originalIndex, mode: "bet", label })
+              body: JSON.stringify({
+                index: acct.originalIndex,
+                mode: "bet",
+                label,
+                reason: "Chips balance is 0, cannot start wash."
+              })
             });
           } catch (err) {}
           mode = "bet";
@@ -430,7 +435,12 @@ async function reconcile() {
             await fetch(`${CENTRAL_URL}/api/launch-mode`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ index: acct.originalIndex, mode: "bet", label })
+              body: JSON.stringify({
+                index: acct.originalIndex,
+                mode: "bet",
+                label,
+                reason: `Wash chips completed (total chips = ${session.initialChips}, total turnover = ${accumulatedTurnover.toFixed(2)})`
+              })
             });
           } catch (err) {
             console.error(`[Unified] Failed to update Central Dashboard mode:`, err.message);

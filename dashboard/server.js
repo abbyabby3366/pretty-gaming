@@ -1451,7 +1451,30 @@ function startDashboard(stateManager) {
               }
             }
 
-            sendWhatsAppNotification(`[MODE SWITCH] ${label}: ${modeLabels[oldMode]} → ${modeLabels[newMode]}`)
+            const fromMode = modeLabels[oldMode];
+            const toMode = modeLabels[newMode];
+            
+            let chipsStr = "";
+            try {
+              const chipsFile = path.resolve(__dirname, "..", "utils", "chips_balances.json");
+              if (fs.existsSync(chipsFile)) {
+                const balances = JSON.parse(fs.readFileSync(chipsFile, "utf8"));
+                if (balances[label] !== undefined) {
+                  chipsStr = `\n• *Current Chips:* ${balances[label]}`;
+                }
+              }
+            } catch (e) {
+              console.error("[Central] Error reading chips balances:", e.message);
+            }
+
+            const reasonStr = body.reason ? `\n*Reason:* ${body.reason}` : "";
+            const waMessage = `🔄 *[MODE SWITCH]*\n` +
+                              `• *Account:* ${label}\n` +
+                              `• *Transition:* *${fromMode}* ➡️ *${toMode}*` +
+                              chipsStr +
+                              reasonStr;
+
+            sendWhatsAppNotification(waMessage)
               .catch(err => console.error("WhatsApp notification failed:", err.message));
           }
 
