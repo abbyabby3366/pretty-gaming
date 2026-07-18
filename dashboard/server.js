@@ -284,7 +284,6 @@ function resolveBetModuleTarget() {
     // Exclude modules whose account has been toggled to wash (even if heartbeat still active)
     const mLabel = m.accounts && m.accounts[0] ? m.accounts[0].label : null;
     if (mLabel && launchModes[mLabel] === "wash") return false;
-    if (m.accountIndex != null && launchModes[String(m.accountIndex)] === "wash") return false;
     // Timeout stuck busy modules (e.g. > 60s)
     if (m.isBusy && m.busySince && now - m.busySince > 60000) {
       m.isBusy = false;
@@ -1419,7 +1418,6 @@ function startDashboard(stateManager) {
       if (req.method === "POST") {
         try {
           const body = await parseJSONBody(req);
-          const index = String(body.index);
           const label = body.label;
           const newMode = body.mode;
           if (newMode !== "bet" && newMode !== "wash") {
@@ -1427,39 +1425,24 @@ function startDashboard(stateManager) {
             res.end(JSON.stringify({ ok: false, error: "Invalid mode. Must be 'bet' or 'wash'." }));
             return;
           }
-          if ((index == null || index === "undefined") && !label) {
+          if (!label) {
             res.writeHead(400, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ ok: false, error: "Missing 'index' or 'label' field." }));
+            res.end(JSON.stringify({ ok: false, error: "Missing 'label' field." }));
             return;
           }
 
-          const key = label || index;
-          const oldMode = launchModes[key] || "bet";
-          launchModes[key] = newMode;
-
-          // Look up account label for the notification
-          let accountLabel = label || `Account ${index}`;
-          if (!label) {
-            try {
-              const acctFile = path.resolve(__dirname, "..", "bet_module", "json", "bet_accounts.json");
-              if (fs.existsSync(acctFile)) {
-                const accts = JSON.parse(fs.readFileSync(acctFile, "utf-8"));
-                const idx = parseInt(index, 10);
-                if (accts[idx] && accts[idx].label) accountLabel = accts[idx].label;
-              }
-            } catch (e) { /* ignore */ }
-          }
+          const oldMode = launchModes[label] || "bet";
+          launchModes[label] = newMode;
 
           const modeLabels = { bet: "PG", wash: "Hotroad" };
-          console.log(`[Central] Launch mode for ${accountLabel} (${key}): ${oldMode} → ${newMode}`);
+          console.log(`[Central] Launch mode for ${label}: ${oldMode} → ${newMode}`);
 
           // Immediately mark the affected module as non-routable so no bets
           // are dispatched during the ~10s window before the launcher kills it.
           if (oldMode !== newMode) {
-            const idx = parseInt(index, 10);
             for (const [, m] of activeModules) {
               const mLabel = m.accounts && m.accounts[0] ? m.accounts[0].label : null;
-              if ((label && mLabel === label) || (!label && m.accountIndex === idx)) {
+              if (mLabel === label) {
                 if (m.accounts) {
                   for (const a of m.accounts) a.isAcceptingBets = false;
                 }
@@ -1468,7 +1451,7 @@ function startDashboard(stateManager) {
               }
             }
 
-            sendWhatsAppNotification(`[MODE SWITCH] ${accountLabel}: ${modeLabels[oldMode]} → ${modeLabels[newMode]}`)
+            sendWhatsAppNotification(`[MODE SWITCH] ${label}: ${modeLabels[oldMode]} → ${modeLabels[newMode]}`)
               .catch(err => console.error("WhatsApp notification failed:", err.message));
           }
 

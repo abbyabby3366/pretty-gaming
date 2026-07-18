@@ -172,8 +172,6 @@ function getAccountMode(modes, index, label) {
   if (label && (modes[label] === "bet" || modes[label] === "wash")) {
     return modes[label];
   }
-  const mode = modes[String(index)];
-  if (mode === "bet" || mode === "wash") return mode;
   return "bet"; // default
 }
 
