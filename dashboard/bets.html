@@ -556,11 +556,30 @@
             let acctHtml = '';
             if (m.accounts && m.accounts.length > 0) {
               for (const a of m.accounts) {
-                 // Wash-mode accounts show HOTROAD status
-                 if (a.isWashMode || m.isWashMode) {
-                   acctHtml += `<div class="acct-row"><span style="color:var(--orange);font-weight:600;">HOTROAD MODE</span></div>`;
-                   continue;
-                 }
+                  // Wash-mode accounts show HOTROAD status
+                  if (a.isWashMode || m.isWashMode) {
+                    const accTurnover = a.washAccumulatedTurnover || 0;
+                    const targetTurnover = a.washTargetTurnover || 0;
+                    const initialChips = a.washInitialChips || 0;
+                    const pct = targetTurnover > 0 ? Math.min(100, (accTurnover / targetTurnover) * 100) : 0;
+
+                    acctHtml += `
+                      <div class="acct-row">
+                        <span style="color:var(--orange);font-weight:600;">HOTROAD MODE</span>
+                        <span style="color:var(--dim);font-size:9px;">Chips: <strong style="color:var(--green)">${(parseFloat(initialChips) || 0).toFixed(2)}</strong></span>
+                      </div>
+                      <div style="margin-top:6px; font-size:10px; color:var(--text); width:100%; border-top:1px solid rgba(255,255,255,0.05); padding-top:6px;">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:4px; font-size:9px; color:var(--dim);">
+                          <span>Progress: <strong style="color:var(--orange); font-weight:600;">${pct.toFixed(1)}%</strong></span>
+                          <span>${accTurnover.toFixed(2)} / ${targetTurnover.toFixed(2)}</span>
+                        </div>
+                        <div style="width:100%; background:#1f2937; height:6px; border-radius:3px; overflow:hidden;">
+                          <div style="width:${pct}%; background:var(--orange); height:100%; border-radius:3px; transition: width 0.3s ease;"></div>
+                        </div>
+                      </div>
+                    `;
+                    continue;
+                  }
 
                  const isReady = a.isAcceptingBets;
                  let readyColor = isReady ? 'var(--green)' : 'var(--yellow)';

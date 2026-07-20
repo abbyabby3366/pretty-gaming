@@ -364,6 +364,10 @@ async function reconcile() {
     let mode = getAccountMode(modes, acct.originalIndex, label);
 
     if (mode === "wash") {
+      acct.washAccumulatedTurnover = 0;
+      acct.washTargetTurnover = 0;
+      acct.washInitialChips = 0;
+
       // 1. Initialize or check wash session
       let session = sessions[String(acct.originalIndex)];
       if (!session) {
@@ -408,6 +412,8 @@ async function reconcile() {
 
       // 2. Query accumulated turnover from Hotroad bet module (only if session is active)
       if (mode === "wash" && session) {
+        acct.washTargetTurnover = session.targetTurnover;
+        acct.washInitialChips = session.initialChips;
         let accumulatedTurnover = 0;
         try {
           const hrEnv = readHotroadEnvFile();
@@ -424,6 +430,8 @@ async function reconcile() {
         } catch (err) {
           // Bet module may not be running yet, silently ignore
         }
+
+        acct.washAccumulatedTurnover = accumulatedTurnover;
 
         console.log(`[Unified] ${acct.label || `Account ${acct.originalIndex}`} Wash Progress: ${accumulatedTurnover.toFixed(2)} / ${session.targetTurnover}`);
 
@@ -574,7 +582,15 @@ async function reconcile() {
       label: label,
       accountIndex: acct.originalIndex,
       isWashMode: true,
-      accounts: [{ label: label, isAcceptingBets: false, balance: null, isWashMode: true }]
+      accounts: [{
+        label: label,
+        isAcceptingBets: false,
+        balance: null,
+        isWashMode: true,
+        washAccumulatedTurnover: acct.washAccumulatedTurnover || 0,
+        washTargetTurnover: acct.washTargetTurnover || 0,
+        washInitialChips: acct.washInitialChips || 0
+      }]
     };
     fetch(`${CENTRAL_URL}/api/bet-module/heartbeat`, {
       method: "POST",
