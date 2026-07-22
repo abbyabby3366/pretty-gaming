@@ -227,6 +227,7 @@ const todayProfitMap = {};       // keyed by moduleId (stable)
 let snapshotAutoEnabled = true;  // toggle for hourly auto-snapshots
 const STALE_THRESHOLD_MS = 12000;
 const launchModes = {}; // in-memory per-account launch modes: { "0": "bet", "1": "wash", ... } — defaults to "bet" for all
+const relaunchRequests = {}; // in-memory per-account relaunch request counts: { "Account 1": 1, ... }
 
 // Periodically purge stale modules and send WhatsApp alerts
 setInterval(() => {
@@ -1412,7 +1413,7 @@ function startDashboard(stateManager) {
     if (req.url === "/api/launch-mode" || req.url.startsWith("/api/launch-mode?")) {
       if (req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true, accounts: launchModes }));
+        res.end(JSON.stringify({ ok: true, accounts: launchModes, relaunchRequests }));
         return;
       }
       if (req.method === "POST") {
@@ -1487,6 +1488,48 @@ function startDashboard(stateManager) {
         return;
       }
     }
+
+    // Request account relaunch (closes browser & module and reopens)
+    if (req.url === "/api/relaunch" || req.url.startsWith("/api/relaunch?")) {
+      if (req.method === "POST") {
+        try {
+          const body = await parseJSONBody(req);
+          const label = body.label;
+          if (!label) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: false, error: "Missing 'label' field." }));
+            return;
+          }
+
+          relaunchRequests[label] = (relaunchRequests[label] || 0) + 1;
+          console.log(`[Central] Relaunch requested for ${label} (count: ${relaunchRequests[label]})`);
+
+          // Immediately mark affected module as non-routable
+          for (const [, m] of activeModules) {
+            const mLabel = m.accounts && m.accounts[0] ? m.accounts[0].label : null;
+            if (mLabel === label) {
+              if (m.accounts) {
+                for (const a of m.accounts) a.isAcceptingBets = false;
+              }
+              console.log(`[Central] Immediately marked module ${m.label} as non-routable (relaunch pending).`);
+              break;
+            }
+          }
+
+          const waMessage = `🔄 *[RELAUNCH REQUESTED]*\n` +
+                            `• *Account:* ${label}`;
+          sendWhatsAppNotification(waMessage).catch(err => console.error("WhatsApp notification failed:", err.message));
+
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true, relaunchRequests }));
+        } catch (e) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+        return;
+      }
+    }
+
 
     // Reset launch modes in-memory back to PG (bet) on startup
     if (req.url === "/api/launch-mode/reset" && req.method === "POST") {

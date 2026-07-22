@@ -58,7 +58,8 @@ function writeWashSessions(sessions) {
 
 // Track per-account state: { mode, child, port }
 const accountState = new Map(); // key: originalIndex (number)
-let lastKnownModes = {}; // cache to handle Central server downtime
+const handledRelaunches = new Map(); // key: label (string) -> count (number)
+let lastKnownModesData = { accounts: {}, relaunchRequests: {} }; // cache to handle Central server downtime
 let pollTimer = null;
 
 // Helper to determine remote debugging port for an account
@@ -135,18 +136,21 @@ async function fetchModes() {
     const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
     const data = await res.json();
-    lastKnownModes = data.accounts || {};
+    lastKnownModesData = {
+      accounts: data.accounts || {},
+      relaunchRequests: data.relaunchRequests || {}
+    };
     if (centralConnectionFailed) {
       console.log(`[Unified] Connected to Central Dashboard successfully.`);
       centralConnectionFailed = false;
     }
-    return lastKnownModes;
+    return lastKnownModesData;
   } catch (err) {
     if (!centralConnectionFailed) {
       console.warn(`[Unified] Warning: Failed to fetch launch modes from Central (${err.message}). Using last known modes.`);
       centralConnectionFailed = true;
     }
-    return lastKnownModes;
+    return lastKnownModesData;
   }
 }
 
@@ -343,11 +347,39 @@ function syncAndSpawnHotroad(washAccounts, allAccounts, portMap) {
 async function reconcile() {
   const allAccountsRaw = JSON.parse(fs.readFileSync(ACCOUNTS_FILE, "utf-8"));
   const runnableAccounts = readAccounts();
-  const modes = await fetchModes();
+  const modesData = await fetchModes();
+  const modes = modesData.accounts || {};
+  const relaunchRequests = modesData.relaunchRequests || {};
 
   if (runnableAccounts.length === 0) {
     console.error("[Unified] No accounts with \"run\": true found in bet_accounts.json");
     return;
+  }
+
+  // Handle per-account relaunch requests
+  for (const acct of runnableAccounts) {
+    const label = acct.label || `Account ${acct.originalIndex}`;
+    const reqCount = relaunchRequests[label] || 0;
+    const handledCount = handledRelaunches.get(label) || 0;
+
+    if (reqCount > handledCount) {
+      console.log(`\x1b[35m[Unified] 🔄 Relaunch requested for ${label} (count ${handledCount} -> ${reqCount})\x1b[0m`);
+      handledRelaunches.set(label, reqCount);
+
+      const existing = accountState.get(acct.originalIndex);
+      if (existing && existing.child) {
+        console.log(`[Unified] Terminating current process for ${label}...`);
+        await killChild(existing.child);
+      }
+
+      const chromePort = getAccountPort(acct);
+      await killChromeOnPort(chromePort);
+      await new Promise(r => setTimeout(r, 1000));
+      await closeAllTabs(chromePort);
+
+      // Force state cleanup so loop re-spawns PG/wash account
+      accountState.delete(acct.originalIndex);
+    }
   }
 
   const betAccounts = [];
@@ -619,7 +651,8 @@ async function reconcile() {
     }).catch(() => { });
   } catch (e) { /* ignore */ }
 
-  const modes = await fetchModes();
+  const modesData = await fetchModes();
+  const modes = modesData.accounts || {};
 
   console.log(`\x1b[36m[Unified] Starting unified launcher — ${runnableAccounts.length} account(s)\x1b[0m`);
   console.log(`[Unified] Polling Central Dashboard (${CENTRAL_URL}) every ${POLL_INTERVAL_MS / 1000}s for mode changes.`);

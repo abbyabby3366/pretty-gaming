@@ -72,8 +72,18 @@
     .status-dot { height: 8px; width: 8px; border-radius: 50%; display: inline-block; }
     .status-online { background: var(--green); box-shadow: 0 0 5px var(--green); }
     .status-offline { background: var(--red); }
-    .status-wash { background: var(--orange); box-shadow: 0 0 5px var(--orange); }
-    .module-card.wash-mode { border-color: var(--orange); border-style: dashed; }
+    .launch-toggle{display:inline-flex;border-radius:4px;overflow:hidden;border:1px solid var(--border);margin-left:10px;font-size:10px;font-weight:600;cursor:pointer;position:relative;}
+    .launch-toggle .lt-opt{padding:3px 10px;transition:all 0.2s;user-select:none;}
+    .launch-toggle .lt-opt.active-bet{background:var(--cyan);color:#000;}
+    .launch-toggle .lt-opt.active-wash{background:var(--orange);color:#000;}
+    .launch-toggle .lt-opt.inactive{background:transparent;color:var(--dim);}
+    .launch-toggle .lt-opt.inactive:hover{color:var(--text);background:rgba(255,255,255,0.05);}
+    .launch-toggle.disabled{opacity:0.5;pointer-events:none;}
+    .btn-relaunch{display:inline-flex;align-items:center;justify-content:center;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--dim);padding:3px 6px;cursor:pointer;transition:all 0.2s;}
+    .btn-relaunch:hover{color:var(--cyan);border-color:var(--cyan);background:rgba(255,255,255,0.05);}
+    .btn-relaunch.disabled{opacity:0.5;pointer-events:none;}
+    .launch-toast{position:fixed;top:12px;left:50%;transform:translateX(-50%);background:var(--card);border:1px solid var(--border);color:var(--text);padding:8px 16px;border-radius:6px;font-size:11px;z-index:999;opacity:0;transition:opacity 0.3s;pointer-events:none;font-family:'JetBrains Mono',monospace;}
+    .launch-toast.show{opacity:1;}
 
     .modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); display:none; justify-content:center; align-items:center; z-index:99; }
     .modal { background:var(--card); border:1px solid var(--border); padding:20px; border-radius:8px; width:400px; }
@@ -617,10 +627,11 @@
 
             const modRate = successRates.moduleLast1000 ? successRates.moduleLast1000[headerLabel] : null;
 
-            // Per-account launch mode toggle
+            // Per-account launch mode toggle & relaunch button
             const acctIdx = m.accountIndex;
             const acctLabel = m.accounts && m.accounts[0] ? m.accounts[0].label : null;
             let toggleHtml = '';
+            let relaunchBtnHtml = '';
             if (acctIdx != null && acctLabel) {
               const acctMode = (launchModes[acctLabel] || 'bet');
               const cooldownKey = acctLabel;
@@ -631,6 +642,14 @@
                 <span class="lt-opt ${acctMode === 'bet' ? 'active-bet' : 'inactive'}" onclick="setAccountMode(${acctIdx}, 'bet', '${safeLabel}')">PG</span>
                 <span class="lt-opt ${acctMode === 'wash' ? 'active-wash' : 'inactive'}" onclick="setAccountMode(${acctIdx}, 'wash', '${safeLabel}')">HR</span>
               </div>`;
+
+              relaunchBtnHtml = `<button class="btn-relaunch${disabledClass}" title="Relaunch ${safeLabel} (close Chrome & PG module and reopen)" onclick="relaunchAccount(${acctIdx}, '${safeLabel}')">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="23 4 23 10 17 10"></polyline>
+                  <polyline points="1 20 1 14 7 14"></polyline>
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
+              </button>`;
             }
 
             const isWash = m.isWashMode;
@@ -643,6 +662,7 @@
                   <span>${headerLabel}</span>
                   <div style="display:flex;align-items:center;gap:6px;">
                     ${toggleHtml}
+                    ${relaunchBtnHtml}
                     <span class="${statusDotClass}" title="${statusDotTitle}"></span>
                   </div>
                 </div>
@@ -765,6 +785,36 @@
         }
       } catch (e) {
         alert('Failed to switch mode: ' + e.message);
+      }
+    }
+
+    async function relaunchAccount(index, label) {
+      if (!label) return;
+      if (accountCooldowns[label] && Date.now() < accountCooldowns[label]) return;
+
+      const pwd = prompt(`Enter password to relaunch ${label}:`);
+      if (pwd !== "1234") {
+        if (pwd !== null) alert("Incorrect password.");
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/relaunch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ index, label })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          showLaunchToast(`Relaunching ${label} — launcher picks up in ~10s`);
+          accountCooldowns[label] = Date.now() + COOLDOWN_MS;
+          lastDataStr = '';
+          poll();
+        } else {
+          alert('Failed to trigger relaunch: ' + (data.error || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('Failed to trigger relaunch: ' + e.message);
       }
     }
 
