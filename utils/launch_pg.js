@@ -561,6 +561,7 @@ async function launchAccount(acctConfig) {
   }
 
   let chipsScraped = false;
+  let hotroadAttempts = 0;
   let mainLoopRetries = 0;
   while (mainLoopRetries < 3) {
     mainLoopRetries++;
@@ -859,25 +860,31 @@ async function launchAccount(acctConfig) {
             // No dialog is open.
             await sleep(1500);
             if (!chipsScraped) {
-              logger.log("No dialog open and chips not scraped. Attempting to click Hotroad icon to get balance...");
-              let hotroadClicked = false;
-              for (const frame of page.frames()) {
-                try {
-                  const hrIcon = await frame.$('img[src*="ROAD/pc/cover"], img[src*="ROAD"]');
-                  if (hrIcon) {
-                    logger.log("Found Hotroad icon. Clicking...");
-                    await hrIcon.click();
-                    hotroadClicked = true;
-                    break;
-                  }
-                } catch (e) {}
-              }
-              if (hotroadClicked) {
-                logger.log("Waiting for Hotroad dialog to appear...");
-                await sleep(3000);
+              if (hotroadAttempts >= 2) {
+                logger.warn("Hotroad dialog failed to appear after multiple attempts. Defaulting to Pretty Gaming launch without scraping chips balance.");
+                chipsScraped = true;
               } else {
-                logger.warn("Could not find Hotroad icon. Defaulting to Pretty Gaming launch.");
-                chipsScraped = true; // Skip to prevent infinite loop
+                logger.log("No dialog open and chips not scraped. Attempting to click Hotroad icon to get balance...");
+                let hotroadClicked = false;
+                for (const frame of page.frames()) {
+                  try {
+                    const hrIcon = await frame.$('img[src*="ROAD/pc/cover"], img[src*="ROAD"]');
+                    if (hrIcon) {
+                      logger.log("Found Hotroad icon. Clicking...");
+                      await hrIcon.click();
+                      hotroadClicked = true;
+                      break;
+                    }
+                  } catch (e) {}
+                }
+                if (hotroadClicked) {
+                  logger.log("Waiting for Hotroad dialog to appear...");
+                  hotroadAttempts++;
+                  await sleep(3000);
+                } else {
+                  logger.warn("Could not find Hotroad icon. Defaulting to Pretty Gaming launch.");
+                  chipsScraped = true; // Skip to prevent infinite loop
+                }
               }
             } else {
               logger.log("Chips already scraped. Clicking Pretty Gaming icon...");
