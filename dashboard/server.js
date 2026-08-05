@@ -1537,9 +1537,12 @@ function startDashboard(stateManager) {
         for (const key of Object.keys(launchModes)) {
           delete launchModes[key];
         }
-        console.log("[Central] Reset all in-memory launch modes back to default (bet) on launcher startup request.");
+        for (const key of Object.keys(relaunchRequests)) {
+          delete relaunchRequests[key];
+        }
+        console.log("[Central] Reset all in-memory launch modes and relaunch requests back to default on launcher startup request.");
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true, accounts: launchModes }));
+        res.end(JSON.stringify({ ok: true, accounts: launchModes, relaunchRequests }));
       } catch (e) {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: false, error: e.message }));

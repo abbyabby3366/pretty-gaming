@@ -651,6 +651,8 @@ async function reconcile() {
     }).catch(() => { });
   } catch (e) { /* ignore */ }
 
+  handledRelaunches.clear();
+
   const modesData = await fetchModes();
   const modes = modesData.accounts || {};
 
