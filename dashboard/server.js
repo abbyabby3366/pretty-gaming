@@ -1757,6 +1757,109 @@ function startDashboard(stateManager) {
       return;
     }
 
+    if (req.method === "GET" && req.url.startsWith("/api/bets/export")) {
+      try {
+        const url = new URL(req.url, `http://localhost:${PORT}`);
+        const statusFilter = url.searchParams.get("status") || "ALL";
+        const outcomeFilter = url.searchParams.get("outcome") || "ALL";
+        const startFilter = url.searchParams.get("start");
+        const endFilter = url.searchParams.get("end");
+
+        const matchQ = {};
+        if (statusFilter !== "ALL") {
+          if (statusFilter === "NON_SUCCESS") {
+            matchQ.outcome = { $ne: "SUCCESS" };
+          } else {
+            matchQ.outcome = statusFilter;
+          }
+        }
+        if (outcomeFilter !== "ALL") {
+          matchQ.roundOutcome = outcomeFilter;
+        }
+        if (startFilter || endFilter) {
+          matchQ.time = {};
+          if (startFilter) matchQ.time.$gte = startFilter;
+          if (endFilter) matchQ.time.$lte = endFilter;
+        }
+
+        if (!dbCollection) {
+          throw new Error("DB not connected yet");
+        }
+
+        const bets = await dbCollection.find(matchQ).sort({ time: -1 }).toArray();
+
+        // Generate CSV content
+        const headers = [
+          "ID",
+          "Time (UTC)",
+          "Time (SGT)",
+          "Table Name",
+          "Round",
+          "Target",
+          "EV",
+          "Target Module",
+          "Recommended Amount",
+          "Actual Amount",
+          "Outcome",
+          "Round Outcome",
+          "Profit",
+          "Error Reason"
+        ];
+
+        const escapeCSV = (val) => {
+          if (val === null || val === undefined) return "";
+          let str = String(val);
+          if (str.includes(",") || str.includes("\n") || str.includes("\r") || str.includes('"')) {
+            return `"${str.replace(/"/g, '""')}"`;
+          }
+          return str;
+        };
+
+        let csvContent = headers.join(",") + "\r\n";
+
+        for (const b of bets) {
+          const timeObj = new Date(b.time);
+          const sgtTime = isNaN(timeObj.getTime())
+            ? ""
+            : timeObj.toLocaleString("en-GB", { timeZone: "Asia/Singapore", hour12: false }).replace(",", "");
+
+          const errorReason = (b.executionState && b.executionState.reason) || "";
+
+          const row = [
+            b.id || "",
+            b.time || "",
+            sgtTime,
+            b.tableName || "",
+            b.round !== undefined ? b.round : "",
+            b.target || "",
+            b.ev !== undefined ? b.ev : "",
+            b.targetModule || "",
+            b.recommendedBetAmount !== undefined ? b.recommendedBetAmount : "",
+            b.actualBetAmount !== undefined ? b.actualBetAmount : "",
+            b.outcome || "",
+            b.roundOutcome || "",
+            b.profit !== null && b.profit !== undefined ? b.profit : "",
+            errorReason
+          ];
+
+          csvContent += row.map(escapeCSV).join(",") + "\r\n";
+        }
+
+        const filename = `bet_logs_${new Date().toISOString().slice(0, 10)}.csv`;
+
+        res.writeHead(200, {
+          "Content-Type": "text/csv",
+          "Content-Disposition": `attachment; filename="${filename}"`,
+          "Pragma": "no-cache",
+          "Expires": "0"
+        });
+        res.end(csvContent);
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: err.message }));
+      }
+      return;
+    }
 
     if (req.method === "GET" && req.url.startsWith("/api/bets")) {
       try {
