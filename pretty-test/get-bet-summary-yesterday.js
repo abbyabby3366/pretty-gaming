@@ -111,6 +111,34 @@
         console.log(`Total Rounds:    ${results.length}`);
         console.log("------------------------------------------");
 
+        // --- CSV EXPORT HELPER ---
+        function exportToCSV(rows, filename) {
+            if (!rows || !rows.length) return;
+            const headers = Object.keys(rows[0]);
+            const csvRows = [];
+            csvRows.push(headers.map(h => `"${h.replace(/"/g, '""')}"`).join(","));
+
+            for (const row of rows) {
+                const values = headers.map(h => {
+                    const val = row[h] !== undefined && row[h] !== null ? String(row[h]) : "";
+                    return `"${val.replace(/"/g, '""')}"`;
+                });
+                csvRows.push(values.join(","));
+            }
+
+            const csvString = csvRows.join("\n");
+            const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", filename);
+            link.style.visibility = "hidden";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            console.log(`📥 CSV exported: ${filename}`);
+        }
+
         // Print detailed table if any results exist
         if (results.length > 0) {
             const detailedTable = results.map(round => {
@@ -131,6 +159,11 @@
 
             console.log("\n--- Yesterday's Detailed Bet List ---");
             console.table(detailedTable);
+
+            // Export to CSV
+            const filename = `bet_summary_yesterday_${yyyy}-${mm}-${dd}.csv`;
+            exportToCSV(detailedTable, filename);
+            window.exportBetSummaryCSV = () => exportToCSV(detailedTable, filename);
         } else {
             console.log("No bets found for yesterday's query range.");
         }
