@@ -1,7 +1,7 @@
 (async function () {
     // --- CONFIGURATION ---
     // Customize the date/time range below (Format: "YYYY-MM-DD HH:mm:ss").
-    // Leave as null to default to today's full day (00:00:00 to 23:59:59).
+    // Leave as null to default to yesterday's full day (00:00:00 to 23:59:59).
     const START_DATE = null;
     const END_DATE = null;
 
@@ -38,11 +38,13 @@
         "authorization": token
     };
 
-    // Calculate dates and timezone info
-    const now = new Date();
-    const yyyy = now.getFullYear();
-    const mm = String(now.getMonth() + 1).padStart(2, '0');
-    const dd = String(now.getDate()).padStart(2, '0');
+    // Calculate yesterday's date range and timezone info
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const yyyy = yesterday.getFullYear();
+    const mm = String(yesterday.getMonth() + 1).padStart(2, '0');
+    const dd = String(yesterday.getDate()).padStart(2, '0');
     
     const defaultStart = `${yyyy}-${mm}-${dd} 00:00:00`;
     const defaultEnd = `${yyyy}-${mm}-${dd} 23:59:59`;
@@ -52,7 +54,7 @@
 
     // Get time zone name (e.g. "Asia/Bangkok") and offset abbreviation (e.g. "GMT+0800")
     const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone || "Unknown Zone";
-    const tzOffset = now.toTimeString().split(' ')[1] || "";
+    const tzOffset = yesterday.toTimeString().split(' ')[1] || "";
 
     try {
         // --- 1. FETCH BALANCE ---
@@ -78,8 +80,8 @@
             }
         }
 
-        // --- 2. FETCH BET SUMMARY ---
-        console.log("⏳ Fetching betting data...");
+        // --- 2. FETCH BET SUMMARY FOR YESTERDAY ---
+        console.log("⏳ Fetching yesterday's betting data...");
         const response = await fetch(`${API_BASE}/apiRoute/transaction/myBet2`, {
             method: "POST",
             headers: headers,
@@ -100,14 +102,14 @@
         const results = response.data?.result || [];
 
         // Print simple summary report
-        console.log("\n--- Betting Summary Report ---");
+        console.log("\n--- Yesterday's Betting Summary Report ---");
         console.log(`Current Balance: ${balance}`);
         console.log(`Query Range:     ${queryStart} to ${queryEnd} (${tzName} ${tzOffset})`);
         console.log(`Turnover:        ${summaries.turnOver}`);
         console.log(`Total Bet:       ${Math.abs(summaries.totalBet)}`);
         console.log(`Total Win/Lose:  ${summaries.winLose}`);
         console.log(`Total Rounds:    ${results.length}`);
-        console.log("------------------------------");
+        console.log("------------------------------------------");
 
         // Print detailed table if any results exist
         if (results.length > 0) {
@@ -127,10 +129,10 @@
                 };
             });
 
-            console.log("\n--- Detailed Bet List ---");
+            console.log("\n--- Yesterday's Detailed Bet List ---");
             console.table(detailedTable);
         } else {
-            console.log("No bets found for this query range.");
+            console.log("No bets found for yesterday's query range.");
         }
 
     } catch (err) {
