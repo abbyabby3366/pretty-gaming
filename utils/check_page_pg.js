@@ -19,6 +19,15 @@ async function checkPGpage(page, logger) {
     }
     try {
       const action = await page.evaluate(() => {
+        // 0. Check for Chrome SSL / HTTPS security interstitial ("This site doesn't support a secure connection")
+        const proceedBtn = document.getElementById("proceed-button") 
+          || document.getElementById("proceed-link") 
+          || Array.from(document.querySelectorAll("button, a")).find(b => b.innerText && b.innerText.includes("Continue to site"));
+        if (proceedBtn) {
+          proceedBtn.click();
+          return "proceed-security";
+        }
+
         // 1. Check for Confirm/Continue
         const btns = Array.from(document.querySelectorAll(".clickActive"));
         const confirmBtn = btns.find((el) => el.innerText && (el.innerText.includes("Confirm") || el.innerText.includes("Continue")));
@@ -54,7 +63,9 @@ async function checkPGpage(page, logger) {
         return null;
       });
 
-      if (action === "confirm") {
+      if (action === "proceed-security") {
+        logger.log("Clicked 'Continue to site' on Chrome security warning page (background).");
+      } else if (action === "confirm") {
         logger.log("Clicked 'Confirm/Continue' modal (background).");
       } else if (action === "all-in-reset") {
         logger.log("Reset 'All-in' chip to '10' chip (background).");

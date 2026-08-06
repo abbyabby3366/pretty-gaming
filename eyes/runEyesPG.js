@@ -5,6 +5,7 @@ const { scrapePG } = require("./scrapePG");
 const { TableStateManager } = require("./tableStateManager");
 const { calculateEV } = require("./evCalculator");
 const { sendWhatsAppNotification } = require("../utils/whatsapp_notifier");
+const Watchdog = require("../utils/watchdog");
 
 const stateManager = new TableStateManager();
 const eventLog = []; // In-memory event log, max 100 entries
@@ -494,18 +495,24 @@ async function runEyesPG(pageOrRef, extractorCode, acctConfig) {
   
   const getPage = () => (pageOrRef && pageOrRef.current) ? pageOrRef.current : pageOrRef;
 
-  let lastStateChangeTime = Date.now();
-  const staleCheckTimer = setInterval(() => {
-    if (Date.now() - lastStateChangeTime > 60000) {
-      console.log("\x1b[31m[STALE] State hasn't changed for 1 minute. Closing tab to force restart...\x1b[0m");
-      sendWhatsAppNotification(`[STALE] PG Eyes state stuck for 1 min. Closing tab to force restart.`).catch(() => {});
+  const watchdog = new Watchdog({
+    name: `PG Eyes "${acctConfig?.label || 'Account'}"`,
+    readinessTimeoutMs: 15000,
+    livenessTimeoutMs: 15000,
+    checkIntervalMs: 5000,
+    onFailure: async (err) => {
+      const msg = `[CRITICAL] ${watchdog.name} ${err.message} Closing tab to force restart...`;
+      console.warn(`\x1b[33m[runEyesPG] ${msg}\x1b[0m`);
+      sendWhatsAppNotification(msg).catch(e => console.error("WhatsApp Notification failed:", e.message));
       const p = getPage();
       if (p && !p.isClosed()) {
         p.close().catch(() => {});
       }
-      clearInterval(staleCheckTimer);
+      watchdog.stop();
     }
-  }, 5000);
+  });
+
+  watchdog.start();
 
   try {
     while (!getPage().isClosed()) {
@@ -539,8 +546,8 @@ async function runEyesPG(pageOrRef, extractorCode, acctConfig) {
 
       let { text, tables } = data;
       
-      // Update active state timestamp to prevent false positive stale checks
-      lastStateChangeTime = Date.now();
+      // Feed watchdog on active state updates
+      watchdog.feed();
 
       // Write human-readable text log
       const timestamp = new Date()
@@ -584,7 +591,7 @@ async function runEyesPG(pageOrRef, extractorCode, acctConfig) {
 
         checkAndReconcileTables(filteredTables, dynamicConfig);
         if (events.some(e => ["HAND_COMPLETE", "STATE_CHANGE", "SHOE_RESET"].includes(e.type))) {
-          lastStateChangeTime = Date.now();
+          watchdog.feed();
         }
 
         // Write complete state JSON (right after analysis, before EV calc)
@@ -655,7 +662,7 @@ async function runEyesPG(pageOrRef, extractorCode, acctConfig) {
     }
   }
   } finally {
-    clearInterval(staleCheckTimer);
+    watchdog.stop();
   }
   
   console.log("\x1b[31m[RECOVERY] Page was closed manually or crashed. Requesting relaunch...\x1b[0m");

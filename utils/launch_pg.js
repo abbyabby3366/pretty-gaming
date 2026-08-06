@@ -431,6 +431,7 @@ async function launchAccount(acctConfig) {
       browser = await puppeteer.launch({
           headless: false,
           defaultViewport: null,
+          ignoreHTTPSErrors: true,
           protocolTimeout: 30000,
           args: launchArgs,
       });
