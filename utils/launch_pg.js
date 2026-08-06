@@ -603,6 +603,67 @@ async function launchAccount(acctConfig) {
           logger.log("Navigating to winboxmalay...");
           await page.goto(urls.login, { waitUntil: "networkidle2", timeout: TIMEOUTS.navigationWait }).catch(() => {});
           await sleep(1500);
+
+          // ── 3-Dot Loader Detection ──
+          let hasContent = false;
+          for (const frame of page.frames()) {
+            try {
+              const found = await frame.evaluate((uidSel, navSel, loginPopupSel) => {
+                if (document.querySelector(uidSel)) return true;
+                if (document.querySelector(navSel)) return true;
+                if (document.querySelector(loginPopupSel)) return true;
+                if (document.querySelector("canvas")) return true;
+                return false;
+              }, SELECTORS.uid, SELECTORS.myNav, SELECTORS.loginPopup).catch(() => false);
+              if (found) { hasContent = true; break; }
+            } catch (e) {}
+          }
+
+          if (!hasContent) {
+            logger.warn("[3-Dot Loader] Page loaded but no meaningful content found. Waiting 10 seconds...");
+            await sleep(10000);
+
+            for (const frame of page.frames()) {
+              try {
+                const found = await frame.evaluate((uidSel, navSel, loginPopupSel) => {
+                  if (document.querySelector(uidSel)) return true;
+                  if (document.querySelector(navSel)) return true;
+                  if (document.querySelector(loginPopupSel)) return true;
+                  if (document.querySelector("canvas")) return true;
+                  return false;
+                }, SELECTORS.uid, SELECTORS.myNav, SELECTORS.loginPopup).catch(() => false);
+                if (found) { hasContent = true; break; }
+              } catch (e) {}
+            }
+          }
+
+          if (!hasContent) {
+            logger.warn("[3-Dot Loader] Still no content after 10 seconds. Reloading page...");
+            await page.reload({ waitUntil: "networkidle2", timeout: 30000 }).catch(() => {});
+            await sleep(10000);
+
+            for (const frame of page.frames()) {
+              try {
+                const found = await frame.evaluate((uidSel, navSel, loginPopupSel) => {
+                  if (document.querySelector(uidSel)) return true;
+                  if (document.querySelector(navSel)) return true;
+                  if (document.querySelector(loginPopupSel)) return true;
+                  if (document.querySelector("canvas")) return true;
+                  return false;
+                }, SELECTORS.uid, SELECTORS.myNav, SELECTORS.loginPopup).catch(() => false);
+                if (found) { hasContent = true; break; }
+              } catch (e) {}
+            }
+
+            if (!hasContent) {
+              logger.error("[3-Dot Loader] Still stuck on loading screen after reload. Restarting browser session...");
+              if (browser && browser.isConnected()) {
+                await browser.close().catch(() => {});
+              }
+              throw new Error("Winbox stuck on 3-dot loading screen even after reload. Browser session restarted.");
+            }
+          }
+
         } else if (currentState === STATES.WINBOX_LOGIN) {
           logger.log("Handling WINBOX_LOGIN...");
           for (const frame of page.frames()) {
@@ -616,21 +677,64 @@ async function launchAccount(acctConfig) {
             } catch(e) {}
           }
           
-          let loginFrame = null;
-          const maxWaitAttempts = 10;
-          for (let attempt = 1; attempt <= maxWaitAttempts; attempt++) {
-            for (const frame of page.frames()) {
-              if (await frame.$(SELECTORS.uid).catch(() => null)) {
-                loginFrame = frame;
-                break;
-              }
-            }
-            if (loginFrame) break;
-            await sleep(500);
+          let loginFrame = page;
+          let uidFound = false;
+
+          for (const frame of page.frames()) {
+            try { if (await frame.$(SELECTORS.uid)) { loginFrame = frame; uidFound = true; break; } } catch (e) {}
           }
 
-          if (!loginFrame) {
-            throw new Error(`Timeout waiting for login inputs (selector: ${SELECTORS.uid})`);
+          if (!uidFound) {
+            try {
+              await page.waitForSelector(SELECTORS.uid, { timeout: 10000 });
+              uidFound = true;
+              for (const frame of page.frames()) {
+                try { if (await frame.$(SELECTORS.uid)) { loginFrame = frame; break; } } catch (e) {}
+              }
+            } catch (e) {
+              uidFound = false;
+            }
+          }
+
+          if (!uidFound) {
+            logger.warn("[Winbox 3-Dot Loader] Login form not loaded after 10 seconds. Reloading page...");
+            await page.reload({ waitUntil: "networkidle2", timeout: 30000 }).catch(() => {});
+            await sleep(1000);
+
+            for (const frame of page.frames()) {
+              try {
+                const popupBtns = await frame.$$(SELECTORS.loginPopup);
+                for (const btn of popupBtns) {
+                  if ((await frame.evaluate(el => el.textContent, btn)).includes("Log In")) {
+                    await btn.click(); await sleep(500); break;
+                  }
+                }
+              } catch(e) {}
+            }
+
+            for (const frame of page.frames()) {
+              try { if (await frame.$(SELECTORS.uid)) { loginFrame = frame; uidFound = true; break; } } catch (e) {}
+            }
+
+            if (!uidFound) {
+              try {
+                await page.waitForSelector(SELECTORS.uid, { timeout: 10000 });
+                uidFound = true;
+                for (const frame of page.frames()) {
+                  try { if (await frame.$(SELECTORS.uid)) { loginFrame = frame; break; } } catch (e) {}
+                }
+              } catch (e) {
+                uidFound = false;
+              }
+            }
+          }
+
+          if (!uidFound) {
+            logger.error("[Winbox 3-Dot Loader] Still stuck on loading screen after page reload. Restarting browser session...");
+            if (browser && browser.isConnected()) {
+              await browser.close().catch(() => {});
+            }
+            throw new Error("Winbox stuck on 3-dot loading screen even after reload. Browser session restarted.");
           }
           
           await loginFrame.$eval(SELECTORS.uid, el => el.value = "").catch(() => {});
@@ -945,6 +1049,11 @@ async function launchAccount(acctConfig) {
       }
     } catch (err) {
       logger.error(`Error during launch/login attempt ${mainLoopRetries}: ${err.message}`);
+
+      if (err.message.includes("3-dot loading screen")) {
+        throw err;
+      }
+
       if (page && !page.isClosed()) {
         logger.log("Closing the current page/tab to clean up...");
         await page.close().catch(() => {});
