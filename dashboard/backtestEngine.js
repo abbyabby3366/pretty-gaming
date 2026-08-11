@@ -462,6 +462,32 @@ async function runBacktest(dbCollection, params) {
   const evPerc = effTurnover > 0 ? (simExpNet / effTurnover) * 100 : 0;
   const explPerc = effTurnover > 0 ? (simExpLoss / effTurnover) * 100 : 0;
 
+  // === Advanced Risk & Performance KPIs (Sortino, Ulcer Index, Calmar) ===
+  const negReturns = allRows
+    .map((r) => r.simProfit / initBankroll)
+    .filter((v) => v < 0);
+  const downsideVar =
+    allRows.length > 0
+      ? negReturns.reduce((sum, v) => sum + v * v, 0) / allRows.length
+      : 0;
+  const downsideDev = Math.sqrt(downsideVar);
+  const sortinoRatio =
+    downsideDev > 0 ? (simPnl / initBankroll) / downsideDev : 0;
+
+  let peakVal = initBankroll;
+  let sumSqDd = 0;
+  for (let i = 0; i < allChartPoints.length; i++) {
+    const y = allChartPoints[i].y;
+    if (y > peakVal) peakVal = y;
+    const ddPct = peakVal > 0 ? ((peakVal - y) / peakVal) * 100 : 0;
+    sumSqDd += ddPct * ddPct;
+  }
+  const ulcerIndex =
+    allChartPoints.length > 0 ? Math.sqrt(sumSqDd / allChartPoints.length) : 0;
+
+  const maxDdPerc = initBankroll > 0 ? (maxDrawdown / initBankroll) * 100 : 0;
+  const calmarRatio = maxDdPerc > 0 ? simRoi / maxDdPerc : 0;
+
   // === Downsample chart data ===
   const chartActual = downsample(allChartPoints, MAX_CHART_POINTS);
   const chartExpected = downsample(allExpectedPoints, MAX_CHART_POINTS);
@@ -513,6 +539,9 @@ async function runBacktest(dbCollection, params) {
       explPerc,
       maxDrawdown,
       maxUpswing,
+      sortinoRatio,
+      ulcerIndex,
+      calmarRatio,
     },
     chartData: {
       actual: chartActual,

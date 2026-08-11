@@ -718,6 +718,21 @@
           <div class="val" id="kpi-winloss">0 / 0 / 0</div>
           <div class="subtext" id="kpi-winrate">Win Rate: 0.00% (excl. pushes)</div>
         </div>
+        <div class="card">
+          <div class="label">Sortino Ratio</div>
+          <div class="val" id="kpi-sortino">0.00</div>
+          <div class="subtext" id="kpi-sortino-sub">Downside Risk Efficiency</div>
+        </div>
+        <div class="card">
+          <div class="label">Ulcer Index</div>
+          <div class="val" id="kpi-ulcer" style="color: var(--yellow);">0.00%</div>
+          <div class="subtext">Drawdown Stress Index</div>
+        </div>
+        <div class="card">
+          <div class="label">Calmar Ratio</div>
+          <div class="val" id="kpi-calmar">0.00</div>
+          <div class="subtext">Return / Max DD Ratio</div>
+        </div>
       </div>
 
       <!-- Chart -->
@@ -1335,6 +1350,19 @@
       document.getElementById('kpi-ev').textContent = `${k.simExpNet >= 0 ? '+' : ''}$${k.simExpNet.toFixed(2)}`;
       document.getElementById('kpi-ev').style.color = k.simExpNet >= 0 ? 'var(--green)' : 'var(--red)';
       document.getElementById('kpi-ev-sub').textContent = `Exp. Loss: ${k.simExpLoss >= 0 ? '+' : ''}$${k.simExpLoss.toFixed(2)} (${k.explPerc >= 0 ? '+' : ''}${k.explPerc.toFixed(2)}%)`;
+
+      // Render Advanced Performance Metrics (Sortino, Ulcer, Calmar)
+      const sortinoVal = k.sortinoRatio ?? 0;
+      document.getElementById('kpi-sortino').textContent = sortinoVal.toFixed(2);
+      document.getElementById('kpi-sortino').style.color = sortinoVal >= 1.0 ? 'var(--green)' : sortinoVal < 0 ? 'var(--red)' : 'var(--yellow)';
+      document.getElementById('kpi-sortino-sub').textContent = sortinoVal >= 2.0 ? 'Excellent Efficiency' : sortinoVal >= 1.0 ? 'Good Efficiency' : 'Low Efficiency';
+
+      const ulcerVal = k.ulcerIndex ?? 0;
+      document.getElementById('kpi-ulcer').textContent = `${ulcerVal.toFixed(2)}%`;
+
+      const calmarVal = k.calmarRatio ?? 0;
+      document.getElementById('kpi-calmar').textContent = calmarVal.toFixed(2);
+      document.getElementById('kpi-calmar').style.color = calmarVal >= 1.0 ? 'var(--green)' : calmarVal < 0 ? 'var(--red)' : 'var(--yellow)';
       const c = data.counts;
       document.getElementById('log-count').textContent = `${c.loaded} loaded | ${c.simulated} simulated | ${c.skipped} skipped`;
       if (currentChartView === 'simulated') {
