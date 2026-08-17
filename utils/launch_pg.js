@@ -25,11 +25,28 @@ function writeLoginTimestamp(label) {
   return timestamps[label];
 }
 
+// ── STATES DEFINITION ───────────────────────────────────────
+const STATES = {
+  IN_GAME: "IN_GAME",
+  IN_LOBBY: "IN_LOBBY",
+  WINBOX_DASHBOARD: "WINBOX_DASHBOARD",
+  WINBOX_LOGIN: "WINBOX_LOGIN",
+  GAME_NOT_QUIT: "GAME_NOT_QUIT",
+  UNINITIALIZED: "UNINITIALIZED",
+};
+
+// ── URL & SELECTOR DEFINITIONS ──────────────────────────────
+const URLS = {
+  login: "https://login.winboxmalay.com/login",
+  gameSelectionPage: "lobby.hotroadgaming.com",
+  betLobby: "game.welcome2hrg.com",
+};
+
 const SELECTORS = {
-  uid: 'input[placeholder="Enter UID / Email"], input[placeholder*="UID"], input[placeholder*="Email"], input[placeholder*="User"], input[placeholder*="Account"]',
-  password: 'input[placeholder="Enter password"], input[type="password"]',
+  uid: 'input[type="text"], input[name="username"], input[placeholder*="Mobile"], input[placeholder*="ID"]',
+  password: 'input[type="password"]',
+  loginPopup: ".winbox-login-popup-btn, button.winbox-login-popup-btn, .winbox-login-popup button",
   myNav: "#My-Nav",
-  loginPopup: "button.winbox-login-popup-btn",
   // Matches the provided DOM: img[src*="WINBOX/gamelist/PRETY/pc/cover.png"]
   prettyGamingIcon: 'img[src*="PRETY/pc/cover"], img[src*="PRETY"]', 
 };
@@ -39,6 +56,7 @@ const TIMEOUTS = {
   navigationWait: 30000,
   selectorWait: 10000,
   tabWait: 30000,
+  loginSla: 25000,
 };
 
 function sleep(ms) {
@@ -50,6 +68,46 @@ function withTimeout(promise, ms = 2500, fallback = null) {
     promise,
     new Promise((resolve) => setTimeout(() => resolve(fallback), ms)),
   ]);
+}
+
+async function pollForStateChange(
+  browser,
+  timeoutMs = 10000,
+  expectedStates = [],
+  logger = console,
+  urls = null,
+) {
+  const targetStates = (expectedStates && expectedStates.length > 0)
+    ? expectedStates
+    : [STATES.WINBOX_LOGIN, STATES.WINBOX_DASHBOARD];
+
+  const startTime = Date.now();
+  let lastLogTime = 0;
+  while (Date.now() - startTime < timeoutMs) {
+    let result = null;
+    try {
+      result = await evaluateState(browser, urls);
+    } catch (e) {}
+
+    if (result && result.state && targetStates.includes(result.state)) {
+      return result;
+    }
+
+    if (Date.now() - lastLogTime >= 2000) {
+      lastLogTime = Date.now();
+      const elapsedSec = Math.round((Date.now() - startTime) / 1000);
+      logger.log(`[pollForStateChange] Polling state (${elapsedSec}s)... Detected: ${result ? result.state : "UNKNOWN"}`);
+    }
+
+    await sleep(200);
+  }
+
+  try {
+    const finalCheck = await evaluateState(browser, urls);
+    if (finalCheck && finalCheck.state) return finalCheck;
+  } catch (e) {}
+
+  return { state: STATES.UNINITIALIZED, page: null };
 }
 
 async function killZombieChromeOnPort(port, logger) {
@@ -218,19 +276,13 @@ function buildAccountConfig(accountIndex = 0, accountsFilePath, modulePrefix = "
     },
     credentials: account.credentials || {},
     urls: {
-      login: "https://winbox88my9.com/login",
+      login: "https://login.winboxmalay.com/login",
+      gameSelectionPage: "lobby.hotroadgaming.com",
+      betLobby: "game.welcome2hrg.com",
       pgLobby: ["hippo168.com", "cloudfront.net"] // Supports both direct URL and Winbox CloudFront redirect
     },
   };
 }
-
-const STATES = {
-  IN_GAME: "IN_GAME",
-  WINBOX_DASHBOARD: "WINBOX_DASHBOARD",
-  WINBOX_LOGIN: "WINBOX_LOGIN",
-  GAME_NOT_QUIT: "GAME_NOT_QUIT",
-  UNINITIALIZED: "UNINITIALIZED",
-};
 
 async function evaluateState(browser, urls) {
   const pages = await browser.pages();
@@ -320,11 +372,11 @@ async function evaluateState(browser, urls) {
       for (const frame of p.frames()) {
         try {
           if (frame.isDetached && frame.isDetached()) continue;
-          if (await withTimeout(frame.$(SELECTORS.myNav), 1500, null)) isDashboard = true;
+          if (await withTimeout(frame.$('#My-Nav, img[src*="PRETY"], img[src*="cover"], .nav-item, .home-header, .winbox-layout'), 800, null)) isDashboard = true;
           if (
-            (await withTimeout(frame.$(SELECTORS.uid), 1500, null)) ||
-            (await withTimeout(frame.$('input[type="password"]'), 1500, null)) ||
-            (await withTimeout(frame.$$(SELECTORS.loginPopup), 1500, []).then((el) => el && el.length > 0).catch(() => false))
+            (await withTimeout(frame.$(SELECTORS.uid), 800, null)) ||
+            (await withTimeout(frame.$('input[type="password"]'), 800, null)) ||
+            (await withTimeout(frame.$$(SELECTORS.loginPopup), 800, []).then((el) => el && el.length > 0).catch(() => false))
           ) isLogin = true;
 
           // Check for visible "Quit Game" element in dashboard/any frame
@@ -347,7 +399,7 @@ async function evaluateState(browser, urls) {
         } catch (e) {}
       }
 
-      const isWinboxLoginUrl = url.includes("winbox") || url.includes("winbox88my9.com") || url.includes(urls.login);
+      const isWinboxLoginUrl = url.includes("winbox") || url.includes("winbox88my9.com") || url.includes("winboxmalay.com") || (urls && urls.login && url.includes(urls.login));
       if (isGameNotQuit) {
         if (bestState !== STATES.IN_GAME) {
           bestState = STATES.GAME_NOT_QUIT;
@@ -371,7 +423,8 @@ async function evaluateState(browser, urls) {
 
 async function launchAccount(acctConfig) {
   const { chrome, useProxy, proxy, credentials, urls, platform, launchMethod, modulePrefix } = acctConfig;
-  const logger = { log: (msg) => console.log(`[${acctConfig.label}] ${msg}`), warn: (msg) => console.warn(`[${acctConfig.label}] ${msg}`), error: (msg) => console.error(`[${acctConfig.label}] ${msg}`) };
+  const labelPrefix = acctConfig.label || "Account";
+  const logger = { log: (msg) => console.log(`[${labelPrefix}] ${msg}`), warn: (msg) => console.warn(`[${labelPrefix}] ${msg}`), error: (msg) => console.error(`[${labelPrefix}] ${msg}`) };
 
   const prefix = modulePrefix || "BET";
   let verifiedIp = "Direct / No Proxy";
@@ -612,330 +665,147 @@ async function launchAccount(acctConfig) {
         logger.log(`Executing state: ${currentState}`);
         
         if (currentState === STATES.UNINITIALIZED) {
-          logger.log("Navigating to login page...");
-          // Initiate navigation in parallel
-          page.goto(urls.login, { waitUntil: "domcontentloaded", timeout: TIMEOUTS.navigationWait }).catch((e) => {
-            logger.warn(`Navigation goto notice: ${e.message}`);
-          });
+          const loginUrl = (urls && urls.login) || URLS.login;
+          logger.log(`[UNINITIALIZED] Navigating to Winbox login URL: ${loginUrl}...`);
+          await page.goto(loginUrl, {
+            waitUntil: "domcontentloaded",
+            timeout: TIMEOUTS.navigationWait,
+          }).catch((e) => logger.warn(`[UNINITIALIZED] Navigation notice: ${e.message}`));
 
-          // ── Poll evaluateState(browser, urls) concurrently to detect WINBOX_LOGIN / active state ──
-          let detectedState = STATES.UNINITIALIZED;
-          const pollStart = Date.now();
-          let lastLogTime = 0;
-          while (Date.now() - pollStart < 15000) {
+          await sleep(1000);
+
+          // Click any initial login popup button if present
+          for (const frame of page.frames()) {
             try {
-              const check = await evaluateState(browser, urls);
-              if (check.state !== STATES.UNINITIALIZED) {
-                detectedState = check.state;
-                currentState = check.state;
-                if (check.page) page = check.page;
-                logger.log(`[Navigation Poller] ✅ State transitioned: ${detectedState}`);
+              if (frame.isDetached && frame.isDetached()) continue;
+              const popupBtn = await withTimeout(frame.$(SELECTORS.loginPopup), 1000, null);
+              if (popupBtn) {
+                logger.log("[UNINITIALIZED] Found login popup button. Clicking...");
+                await popupBtn.click().catch(() => {});
+                await sleep(500);
                 break;
               }
             } catch (e) {}
-
-            if (Date.now() - lastLogTime >= 2000) {
-              lastLogTime = Date.now();
-              logger.log(`[Navigation Poller] Polling for login state... (${Math.round((Date.now() - pollStart) / 1000)}s)`);
-            }
-            await sleep(400);
           }
 
-          if (detectedState === STATES.UNINITIALIZED) {
-            logger.warn("[3-Dot Loader] Still uninitialized after 15 seconds. Reloading page...");
-            await page.reload({ waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
-            await sleep(1500);
-
-            const retryPollStart = Date.now();
-            lastLogTime = 0;
-            while (Date.now() - retryPollStart < 15000) {
-              try {
-                const check = await evaluateState(browser, urls);
-                if (check.state !== STATES.UNINITIALIZED) {
-                  detectedState = check.state;
-                  currentState = check.state;
-                  if (check.page) page = check.page;
-                  logger.log(`[Navigation Poller] ✅ State transitioned after reload: ${detectedState}`);
-                  break;
-                }
-              } catch (e) {}
-
-              if (Date.now() - lastLogTime >= 2000) {
-                lastLogTime = Date.now();
-                logger.log(`[Navigation Poller] Polling after reload... (${Math.round((Date.now() - retryPollStart) / 1000)}s)`);
-              }
-              await sleep(400);
-            }
-          }
-
-          if (detectedState === STATES.UNINITIALIZED) {
-            logger.error("[3-Dot Loader] Still stuck on loading screen after reload. Restarting browser session...");
-            if (browser && browser.isConnected()) {
-              await browser.close().catch(() => {});
-            }
-            throw new Error("Winbox stuck on 3-dot loading screen even after reload. Browser session restarted.");
-          }
-
+          // Poll for state transition to WINBOX_LOGIN
+          const nextResult = await pollForStateChange(
+            browser,
+            10000,
+            [STATES.WINBOX_LOGIN, STATES.WINBOX_DASHBOARD],
+            logger,
+            urls,
+          );
+          currentState = (nextResult && nextResult.state) ? nextResult.state : STATES.WINBOX_LOGIN;
+          if (nextResult && nextResult.page) page = nextResult.page;
           continue;
 
         } else if (currentState === STATES.WINBOX_LOGIN) {
-          logger.log("Handling WINBOX_LOGIN...");
+          logger.log("[WINBOX_LOGIN] Attempting to locate and execute login sequence...");
 
           let loginSuccess = false;
-          for (let loginAttempt = 1; loginAttempt <= 3; loginAttempt++) {
-            logger.log(`[WINBOX_LOGIN] Attempt ${loginAttempt}/3: Locating login form across frames...`);
+          for (let loginAttempt = 1; loginAttempt <= 2; loginAttempt++) {
+            logger.log(`[WINBOX_LOGIN] Login attempt ${loginAttempt}/2...`);
 
+            // Locate login frame containing UID and Password inputs
             let loginFrame = null;
-            let uidFound = false;
+            let formFound = false;
+            const frameSearchStart = Date.now();
 
-            // Step 1: Poll all frames/iframes for up to 15 seconds with active logging & timeouts
-            const loginPollStart = Date.now();
-            let lastSearchLog = 0;
-            while (Date.now() - loginPollStart < 15000) {
-              const elapsedSec = Math.round((Date.now() - loginPollStart) / 1000);
-              if (Date.now() - lastSearchLog >= 2000) {
-                lastSearchLog = Date.now();
-                logger.log(`[WINBOX_LOGIN] Attempt ${loginAttempt}/3: Searching for login form across frames... (${elapsedSec}s)`);
-              }
-
+            while (Date.now() - frameSearchStart < 10000) {
               for (const frame of page.frames()) {
                 try {
                   if (frame.isDetached && frame.isDetached()) continue;
-                  // Dismiss login popup button if present
-                  const popupButtons = await withTimeout(frame.$$(SELECTORS.loginPopup), 2000, []);
-                  if (popupButtons && popupButtons.length > 0) {
-                    for (const btn of popupButtons) {
-                      const text = await withTimeout(frame.evaluate((el) => el.textContent, btn), 1500, "");
-                      if (/log\s*in|login|sign\s*in/i.test(text || "")) {
-                        await withTimeout(btn.click(), 1500, null);
-                        await sleep(500);
-                        break;
-                      }
-                    }
-                  }
+                  const hasUid = await withTimeout(frame.$(SELECTORS.uid), 800, null);
+                  const hasPwd = await withTimeout(frame.$(SELECTORS.password), 800, null);
 
-                  // Check if UID input is present in this frame/iframe
-                  const uidEl = await withTimeout(frame.$(SELECTORS.uid), 2000, null);
-                  if (uidEl) {
+                  if (hasUid || hasPwd) {
                     loginFrame = frame;
-                    uidFound = true;
+                    formFound = true;
                     break;
                   }
                 } catch (e) {}
               }
-              if (uidFound) break;
-              await sleep(500);
+              if (formFound) break;
+              await sleep(250);
             }
 
-            // Step 2: If not found after 15 seconds, reload page and poll again
-            if (!uidFound) {
-              logger.warn(`[WINBOX_LOGIN] Attempt ${loginAttempt}/3: Login form not found across frames. Reloading page...`);
+            if (!formFound || !loginFrame) {
+              logger.warn(`[WINBOX_LOGIN] Form not found on attempt ${loginAttempt} after 10s. Reloading page...`);
               await page.reload({ waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
-              await sleep(2000);
-
-              const retryPollStart = Date.now();
-              lastSearchLog = 0;
-              while (Date.now() - retryPollStart < 15000) {
-                const elapsedSec = Math.round((Date.now() - retryPollStart) / 1000);
-                if (Date.now() - lastSearchLog >= 2000) {
-                  lastSearchLog = Date.now();
-                  logger.log(`[WINBOX_LOGIN] Attempt ${loginAttempt}/3: Searching after reload... (${elapsedSec}s)`);
-                }
-
-                for (const frame of page.frames()) {
-                  try {
-                    if (frame.isDetached && frame.isDetached()) continue;
-                    const popupButtons = await withTimeout(frame.$$(SELECTORS.loginPopup), 2000, []);
-                    if (popupButtons && popupButtons.length > 0) {
-                      for (const btn of popupButtons) {
-                        const text = await withTimeout(frame.evaluate((el) => el.textContent, btn), 1500, "");
-                        if (/log\s*in|login|sign\s*in/i.test(text || "")) {
-                          await withTimeout(btn.click(), 1500, null);
-                          await sleep(500);
-                          break;
-                        }
-                      }
-                    }
-
-                    const uidEl = await withTimeout(frame.$(SELECTORS.uid), 2000, null);
-                    if (uidEl) {
-                      loginFrame = frame;
-                      uidFound = true;
-                      break;
-                    }
-                  } catch (e) {}
-                }
-                if (uidFound) break;
-                await sleep(500);
-              }
+              await sleep(1500);
+              continue;
             }
 
-            // Step 3: If STILL stuck on this attempt, retry navigation or fail
-            if (!uidFound || !loginFrame) {
-              logger.warn(`[WINBOX_LOGIN] Attempt ${loginAttempt}/3 failed to locate form.`);
-              if (loginAttempt < 3) {
-                logger.log(`[WINBOX_LOGIN] Re-navigating to login page for attempt ${loginAttempt + 1}...`);
-                await page.goto(urls.login, { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
-                await sleep(2000);
-                continue;
-              } else {
-                logger.error("[Winbox 3-Dot Loader] Still stuck on loading screen after all 3 attempts. Restarting browser session...");
-                if (browser && browser.isConnected()) {
-                  await browser.close().catch(() => {});
-                }
-                throw new Error("Winbox stuck on 3-dot loading screen across all attempts. Browser session restarted.");
-              }
-            }
+            logger.log("[WINBOX_LOGIN] ✅ Login form detected! Settling before typing...");
+            await sleep(800);
 
-            logger.log("[WINBOX_LOGIN] Login form located! Filling credentials...");
-            await withTimeout(loginFrame.$eval(SELECTORS.uid, (el) => (el.value = "")), 2000, null);
-            await withTimeout(loginFrame.click(SELECTORS.uid, { clickCount: 3 }), 2000, null);
-            await page.keyboard.press("Backspace").catch(() => {});
-            await withTimeout(loginFrame.type(SELECTORS.uid, credentials.email, { delay: 10 }), 5000, null);
-
-            await withTimeout(loginFrame.$eval(SELECTORS.password, (el) => (el.value = "")), 2000, null);
-            await withTimeout(loginFrame.click(SELECTORS.password, { clickCount: 3 }), 2000, null);
-            await page.keyboard.press("Backspace").catch(() => {});
-            await withTimeout(loginFrame.type(SELECTORS.password, credentials.password, { delay: 10 }), 5000, null);
-
-            await sleep(500);
-
-              // ── Multi-strategy login button click ──
-              // Some SPAs ignore programmatic el.click(); we try multiple approaches.
-              let buttonClicked = false;
-              let loginBtnEl = null;
-              const candidateSelectors = ["button", "input[type='submit']", "input[type='button']", "div[role='button']", "a", "span"];
-              for (const candSel of candidateSelectors) {
-                const elements = await withTimeout(loginFrame.$$(candSel), 2000, []);
-                if (!elements || elements.length === 0) continue;
-                for (const el of elements) {
-                  const text = await withTimeout(loginFrame.evaluate((item) => item.textContent || item.value || "", el), 1000, "");
-                  if (/log\s*in|login|sign\s*in/i.test((text || "").trim())) {
-                    loginBtnEl = el;
-                    buttonClicked = true;
-                    break;
-                  }
-                }
-                if (buttonClicked) break;
-              }
-
-              if (loginBtnEl) {
-                const btnText = await withTimeout(loginFrame.evaluate((item) => (item.textContent || item.value || "").trim(), loginBtnEl), 1000, "Login");
-                logger.log(`[WINBOX_LOGIN] Found login button ("${btnText}"). Clicking with multiple strategies...`);
-
-                // Strategy 1: Puppeteer ElementHandle click
-                logger.log("[WINBOX_LOGIN] Strategy 1: Puppeteer .click()...");
-                await withTimeout(loginBtnEl.click(), 2000, null);
-                await sleep(300);
-
-                // Strategy 2: JavaScript DOM .click()
-                logger.log("[WINBOX_LOGIN] Strategy 2: JS evaluate .click()...");
-                await withTimeout(loginFrame.evaluate((el) => {
-                  if (el && typeof el.click === "function") el.click();
-                }, loginBtnEl), 2000, null);
-                await sleep(300);
-
-                // Strategy 3: Mouse click at element coordinates
-                try {
-                  const box = await withTimeout(loginBtnEl.boundingBox(), 1500, null);
-                  if (box) {
-                    logger.log(`[WINBOX_LOGIN] Strategy 3: Mouse click at (${Math.round(box.x + box.width / 2)}, ${Math.round(box.y + box.height / 2)})...`);
-                    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-                    await sleep(300);
-                  }
-                } catch (e) {}
-
-                await loginBtnEl.dispose().catch(() => {});
-              } else {
-                logger.log("[WINBOX_LOGIN] No matching login button found.");
-              }
-
-              // Strategy 4: Always press Enter as belt-and-suspenders
-              logger.log("[WINBOX_LOGIN] Strategy 4: Pressing 'Enter' key...");
-              await page.keyboard.press("Enter").catch(() => {});
-
-              logger.log("Login submitted. Polling for state transition...");
-              writeLoginTimestamp(acctConfig.label);
-
-              // Poll frequently (every 500ms) with regular progress logging.
-              // If still stuck after 5 seconds, re-click the button as a retry.
-              const nextStatePollStart = Date.now();
-              let lastPollLog = 0;
-              let retriedClick = false;
-              while (Date.now() - nextStatePollStart < 20000) {
-                let nextCheck = { state: STATES.WINBOX_LOGIN };
-                try {
-                  nextCheck = await evaluateState(browser, urls);
-                } catch (e) {}
-
-                const elapsedSec = Math.round((Date.now() - nextStatePollStart) / 1000);
-                if (Date.now() - lastPollLog >= 2000) {
-                  lastPollLog = Date.now();
-                  logger.log(`[WINBOX_LOGIN] Polling state (${elapsedSec}s)... Detected: ${nextCheck.state}`);
-                }
-
-                if (
-                  nextCheck.state !== STATES.WINBOX_LOGIN &&
-                  nextCheck.state !== STATES.UNINITIALIZED
-                ) {
-                  loginSuccess = true;
-                  currentState = nextCheck.state;
-                  if (nextCheck.page) page = nextCheck.page;
-                  logger.log(`[WINBOX_LOGIN] ✅ State transitioned to: ${currentState}`);
-                  break;
-                }
-
-                // After 5 seconds of no state change, retry clicking the login button
-                if (!retriedClick && elapsedSec >= 5) {
-                  retriedClick = true;
-                  logger.log("[WINBOX_LOGIN] State still stuck after 5s. Re-clicking login button...");
-                  try {
-                    for (const frame of page.frames()) {
-                      try {
-                        if (frame.isDetached && frame.isDetached()) continue;
-                        const retryBtns = await withTimeout(frame.$$("button"), 2000, []);
-                        if (!retryBtns || retryBtns.length === 0) continue;
-                        for (const btn of retryBtns) {
-                          const text = await withTimeout(frame.evaluate((item) => (item.textContent || "").trim(), btn), 1000, "");
-                          if (/log\s*in|login|sign\s*in/i.test(text || "")) {
-                            logger.log(`[WINBOX_LOGIN] Re-click: Puppeteer .click() on "${text}"...`);
-                            await withTimeout(btn.click(), 2000, null);
-                            await sleep(200);
-                            logger.log("[WINBOX_LOGIN] Re-click: JS .click()...");
-                            await withTimeout(frame.evaluate((el) => el && el.click(), btn), 2000, null);
-                            await sleep(200);
-                            const box = await withTimeout(btn.boundingBox(), 1500, null);
-                            if (box) {
-                              logger.log(`[WINBOX_LOGIN] Re-click: Mouse click at (${Math.round(box.x + box.width / 2)}, ${Math.round(box.y + box.height / 2)})...`);
-                              await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-                            }
-                            await btn.dispose().catch(() => {});
-                            break;
-                          }
-                        }
-                      } catch (e) {}
+            // Type ID & Password with native event dispatching (Vue/React state update)
+            logger.log("[WINBOX_LOGIN] Clearing and typing credentials with event dispatching...");
+            await withTimeout(
+              loginFrame.evaluate((uidSel, pwdSel, email, pass) => {
+                function setInputValue(sel, val) {
+                  const el = document.querySelector(sel);
+                  if (el) {
+                    el.focus();
+                    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+                    if (nativeSetter) {
+                      nativeSetter.call(el, val);
+                    } else {
+                      el.value = val;
                     }
-                    await page.keyboard.press("Enter").catch(() => {});
-                  } catch (e) {}
+                    el.dispatchEvent(new Event("input", { bubbles: true }));
+                    el.dispatchEvent(new Event("change", { bubbles: true }));
+                  }
                 }
+                setInputValue(uidSel, email);
+                setInputValue(pwdSel, pass);
+              }, SELECTORS.uid, SELECTORS.password, credentials.email, credentials.password),
+              2000,
+              null,
+            ).catch(() => {});
 
-                await sleep(500);
-              }
+            // Puppeteer native keyboard typing backup
+            await withTimeout(loginFrame.click(SELECTORS.uid, { clickCount: 3 }), 1500, null).catch(() => {});
+            await withTimeout(loginFrame.type(SELECTORS.uid, credentials.email, { delay: 10 }), 4000, null).catch(() => {});
+            await withTimeout(loginFrame.click(SELECTORS.password, { clickCount: 3 }), 1500, null).catch(() => {});
+            await withTimeout(loginFrame.type(SELECTORS.password, credentials.password, { delay: 10 }), 4000, null).catch(() => {});
 
-            if (loginSuccess) {
+            await sleep(300);
+
+            // ── Single Action: Submit via "Enter" key on password field ──
+            logger.log("[WINBOX_LOGIN] Submitting login via 'Enter' key on password field...");
+            await loginFrame.focus(SELECTORS.password).catch(() => {});
+            await sleep(100);
+            await page.keyboard.press("Enter").catch(() => {});
+
+            logger.log("[WINBOX_LOGIN] Login submitted. Polling for dashboard...");
+            writeLoginTimestamp(labelPrefix);
+            await sleep(300);
+
+            // Poll for transition to WINBOX_DASHBOARD
+            const transitionResult = await pollForStateChange(
+              browser,
+              TIMEOUTS.loginSla,
+              [STATES.WINBOX_DASHBOARD, STATES.IN_LOBBY, STATES.IN_GAME],
+              logger,
+              urls,
+            );
+
+            if (transitionResult && transitionResult.state && transitionResult.state !== STATES.WINBOX_LOGIN && transitionResult.state !== STATES.UNINITIALIZED) {
+              currentState = transitionResult.state;
+              if (transitionResult.page) page = transitionResult.page;
+              logger.log(`[WINBOX_LOGIN] ✅ State transitioned to: ${currentState}`);
+              loginSuccess = true;
               break;
-            } else {
-              if (loginAttempt < 3) {
-                logger.warn(`[WINBOX_LOGIN] Login did not transition after submission (still in WINBOX_LOGIN). Re-navigating for attempt ${loginAttempt + 1}...`);
-                await page.goto(urls.login, { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
-                await sleep(1500);
-              } else {
-                logger.warn(`[WINBOX_LOGIN] Login did not transition after all 3 attempts. Will fall through to state machine retry.`);
-              }
             }
           }
 
+          if (!loginSuccess) {
+            throw new Error("WINBOX_LOGIN failed after 2 attempts.");
+          }
           continue;
+
         } else if (currentState === STATES.GAME_NOT_QUIT) {
           logger.log("Handling GAME_NOT_QUIT...");
           let quitClicked = false;
