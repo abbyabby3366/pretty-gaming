@@ -240,7 +240,7 @@ function calculateEVForEvents(events, dynamicConfig = {}) {
 
 // ─── Step 4: Send POST if edge found (placeholder) ──────────────────────
 
-function sendSignals(events) {
+function sendSignals(events, dynamicConfig = {}) {
   for (const event of events) {
     if (event.type === "SHOE_RESET") {
       const ts = stateManager.getTable(event.tableName);
@@ -320,6 +320,27 @@ function sendSignals(events) {
 
     if (ts.currentBetId) {
       continue; // Bet already pending for this cycle, avoid duplicate dispatch
+    }
+
+    const remainingCards = ts.remaining;
+
+    // Filter by maxDeckRemaining limit config
+    const maxDeckRemaining = dynamicConfig.maxDeckRemaining !== undefined ? parseInt(dynamicConfig.maxDeckRemaining, 10) : 0;
+    if (maxDeckRemaining > 0 && remainingCards > maxDeckRemaining) {
+      console.log(`  \x1b[33m[SIGNAL] Skipped dispatch: remaining cards (${remainingCards}) above max limit (${maxDeckRemaining})\x1b[0m`);
+      continue;
+    }
+
+    // Filter by allowedBetSide limit config ("both", "banker_only", "player_only")
+    const allowedBetSide = dynamicConfig.allowedBetSide || "both";
+    const bestTarget = ts.lastEvResult.best;
+    if (allowedBetSide === "banker_only" && bestTarget !== "Banker" && bestTarget !== "BankerBet") {
+      console.log(`  \x1b[33m[SIGNAL] Skipped dispatch: target (${bestTarget}) not allowed by side filter (${allowedBetSide})\x1b[0m`);
+      continue;
+    }
+    if (allowedBetSide === "player_only" && bestTarget !== "Player" && bestTarget !== "PlayerBet") {
+      console.log(`  \x1b[33m[SIGNAL] Skipped dispatch: target (${bestTarget}) not allowed by side filter (${allowedBetSide})\x1b[0m`);
+      continue;
     }
 
     // Generate a new UUID for this new betting phase
@@ -460,6 +481,8 @@ async function writeStateJson(tables, timestamp, events, allScrapedTables = [], 
       config: {
         minEvThreshold: dynamicConfig.minEvThreshold !== undefined ? parseFloat(dynamicConfig.minEvThreshold) : 0.0003,
         rebateRate: dynamicConfig.rebateRate !== undefined ? parseFloat(dynamicConfig.rebateRate) : 0.012,
+        maxDeckRemaining: dynamicConfig.maxDeckRemaining !== undefined ? parseInt(dynamicConfig.maxDeckRemaining, 10) : 0,
+        allowedBetSide: dynamicConfig.allowedBetSide || "both",
       },
       allScrapedTables,
       ignoredTables,
@@ -623,7 +646,7 @@ async function runEyesPG(pageOrRef, extractorCode, acctConfig) {
           if (eventLog.length > MAX_EVENT_LOG) eventLog.length = MAX_EVENT_LOG;
 
           // Step 4: Send POST signals if edge found
-          sendSignals(events);
+          sendSignals(events, dynamicConfig);
 
           // Re-write state JSON after EV calculation (now includes fresh EV results)
           await writeStateJson(filteredTables, timestamp, events, allScrapedTables, ignoredTables, dynamicConfig);

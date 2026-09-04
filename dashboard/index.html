@@ -161,7 +161,7 @@
   </div>
 
   <div class="modal-overlay" id="evModal">
-    <div class="modal" style="width: 300px;">
+    <div class="modal" style="width: 320px;">
       <div class="modal-title">EV Config</div>
       <div class="modal-body" style="display:flex; flex-direction:column; gap:10px;">
         <div>
@@ -171,6 +171,18 @@
         <div>
           <label style="font-size:10px; color:var(--dim); display:block; margin-bottom:4px;">Rebate Rate</label>
           <input type="number" id="inp_rebate" step="0.001" style="width:100%; padding:5px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:3px;">
+        </div>
+        <div>
+          <label style="font-size:10px; color:var(--dim); display:block; margin-bottom:4px;">Max Deck Remaining Limit (0 = Disabled)</label>
+          <input type="number" id="inp_maxDeckRemaining" step="1" min="0" style="width:100%; padding:5px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:3px;">
+        </div>
+        <div>
+          <label style="font-size:10px; color:var(--dim); display:block; margin-bottom:4px;">Allowed Bet Side Filter</label>
+          <select id="inp_allowedBetSide" style="width:100%; padding:5px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:3px;">
+            <option value="both">Both (Banker & Player)</option>
+            <option value="banker_only">Banker Only</option>
+            <option value="player_only">Player Only</option>
+          </select>
         </div>
       </div>
       <div class="modal-footer">
@@ -512,9 +524,11 @@
     }
 
     function openEvConfig() {
-      const cfg = window.currentConfig || { minEvThreshold: 0.0015, rebateRate: 0.012 };
-      document.getElementById('inp_minEv').value = cfg.minEvThreshold;
-      document.getElementById('inp_rebate').value = cfg.rebateRate;
+      const cfg = window.currentConfig || { minEvThreshold: 0.0015, rebateRate: 0.012, maxDeckRemaining: 0, allowedBetSide: 'both' };
+      document.getElementById('inp_minEv').value = cfg.minEvThreshold !== undefined ? cfg.minEvThreshold : 0.0015;
+      document.getElementById('inp_rebate').value = cfg.rebateRate !== undefined ? cfg.rebateRate : 0.012;
+      document.getElementById('inp_maxDeckRemaining').value = cfg.maxDeckRemaining !== undefined ? cfg.maxDeckRemaining : 0;
+      document.getElementById('inp_allowedBetSide').value = cfg.allowedBetSide || 'both';
       document.getElementById('evModal').style.display = 'flex';
     }
 
@@ -525,12 +539,19 @@
     async function saveEvConfig() {
       const minEv = parseFloat(document.getElementById('inp_minEv').value);
       const rebate = parseFloat(document.getElementById('inp_rebate').value);
+      const maxDeckRemainingVal = parseInt(document.getElementById('inp_maxDeckRemaining').value, 10);
+      const allowedBetSideVal = document.getElementById('inp_allowedBetSide').value;
       
       try {
         const res = await fetch('/api/config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ minEvThreshold: minEv, rebateRate: rebate })
+          body: JSON.stringify({
+            minEvThreshold: minEv,
+            rebateRate: rebate,
+            maxDeckRemaining: isNaN(maxDeckRemainingVal) ? 0 : maxDeckRemainingVal,
+            allowedBetSide: allowedBetSideVal
+          })
         });
         if (res.ok) {
           closeEvConfig();

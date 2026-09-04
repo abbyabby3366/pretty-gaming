@@ -22,7 +22,9 @@ let betConfig = {
   minBet: 0,
   maxBet: 500,
   autoBetEnabled: true,
-  minAccountBalance: 1000
+  minAccountBalance: 1000,
+  maxDeckRemaining: 0,
+  allowedBetSide: "both"
 };
 
 try {
@@ -1165,6 +1167,14 @@ function startDashboard(stateManager) {
           recommendedBetAmount = amount;
         }
 
+        const allowedBetSide = betConfig.allowedBetSide || "both";
+        const isSideFiltered = (allowedBetSide === "banker_only" && (bestTarget === "PlayerBet" || bestTarget === "Player" || bestTarget === "TieBet" || bestTarget === "Tie")) ||
+                               (allowedBetSide === "player_only" && (bestTarget === "BankerBet" || bestTarget === "Banker" || bestTarget === "TieBet" || bestTarget === "Tie"));
+
+        const remainingCards = body.metrics?.deckRemaining !== undefined ? parseInt(body.metrics.deckRemaining, 10) : (body.ocr?.deckRemaining !== undefined ? parseInt(body.ocr.deckRemaining, 10) : null);
+        const maxDeckRemaining = betConfig.maxDeckRemaining !== undefined ? parseInt(betConfig.maxDeckRemaining, 10) : 0;
+        const isDeckFiltered = maxDeckRemaining > 0 && remainingCards !== null && remainingCards > maxDeckRemaining;
+
         const betEntry = {
           id: betId,
           time: new Date().toISOString(),
@@ -1175,10 +1185,13 @@ function startDashboard(stateManager) {
           targetModuleId: null,
           targetModule: "NONE",
           reasonState: body,
-          executionState: null,
-          outcomeState: null,
-          outcome: !betConfig.autoBetEnabled ? "AUTOBET_OFF" : "QUEUED",
-          recommendedBetAmount: recommendedBetAmount,
+          executionState: isDeckFiltered
+            ? { status: "SKIPPED", reason: `Remaining cards (${remainingCards}) is above maximum limit (${maxDeckRemaining})` }
+            : (isSideFiltered
+              ? { status: "SKIPPED", reason: `Target ${bestTarget} not allowed by side filter (${allowedBetSide})` }
+              : null),
+          outcome: isDeckFiltered ? "SKIPPED_DECK_LIMIT" : (isSideFiltered ? "SKIPPED_SIDE_FILTER" : (!betConfig.autoBetEnabled ? "AUTOBET_OFF" : "QUEUED")),
+          recommendedBetAmount: (isSideFiltered || isDeckFiltered) ? 0 : recommendedBetAmount,
           actualBetAmount: "-",
           roundOutcome: "WAITING",
           profit: null
@@ -1189,6 +1202,32 @@ function startDashboard(stateManager) {
 
         if (dbCollection) {
           dbCollection.insertOne(betEntry).catch(() => { });
+        }
+
+        if (isDeckFiltered) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({
+              ok: true,
+              action: "SKIPPED",
+              reason: `Remaining cards (${remainingCards}) is above maximum limit (${maxDeckRemaining})`,
+              betId,
+            })
+          );
+          return;
+        }
+
+        if (isSideFiltered) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({
+              ok: true,
+              action: "SKIPPED",
+              reason: `Target ${bestTarget} not allowed by side filter (${allowedBetSide})`,
+              betId,
+            })
+          );
+          return;
         }
 
         if (!betConfig.autoBetEnabled) {
