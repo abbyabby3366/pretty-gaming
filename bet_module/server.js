@@ -177,6 +177,166 @@ async function updateBalance() {
   }
 }
 
+/**
+ * Proactive Token Health Check
+ * Periodically validates the PG API token by calling a lightweight endpoint.
+ * If the token has been replaced/expired server-side, forces a page reload
+ * to get a fresh token BEFORE any bet fails.
+ */
+let tokenCheckFailCount = 0;
+async function checkTokenHealth() {
+  if (!isBrowserReady || !browserPage || isBetInProgress) return;
+
+  try {
+    const evaluatePromise = browserPage.evaluate(async () => {
+      const API_BASE = "https://member-api.aghippo168.com";
+
+      function getAuthToken() {
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          const val = localStorage.getItem(key);
+          if (key.toLowerCase().includes('token') && val) {
+            return val.replace(/^Bearer\s+/i, '');
+          }
+          if (val && val.startsWith('eyJ') && val.split('.').length === 3) {
+            return val;
+          }
+        }
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const key = sessionStorage.key(i);
+          const val = sessionStorage.getItem(key);
+          if (key.toLowerCase().includes('token') && val) {
+            return val.replace(/^Bearer\s+/i, '');
+          }
+          if (val && val.startsWith('eyJ') && val.split('.').length === 3) {
+            return val;
+          }
+        }
+        const cookieMatch = document.cookie.match(/token=([^;]+)/i);
+        if (cookieMatch) return decodeURIComponent(cookieMatch[1]);
+        return null;
+      }
+
+      const token = getAuthToken();
+      if (!token) return { valid: false, reason: "no_token" };
+
+      try {
+        const res = await fetch(`${API_BASE}/apiRoute/member/profile`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "authorization": token },
+          body: JSON.stringify({ lang: "en" })
+        }).then(r => r.json());
+
+        if (res && res._id) {
+          return { valid: true };
+        }
+        // API returned a response but not a valid profile — token is likely invalid
+        const msg = res?.msg || res?.message || JSON.stringify(res);
+        return { valid: false, reason: msg };
+      } catch (e) {
+        return { valid: false, reason: `network_error: ${e.message}` };
+      }
+    });
+
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 10000));
+    const result = await Promise.race([evaluatePromise, timeoutPromise]);
+
+    if (result && result.valid) {
+      tokenCheckFailCount = 0;
+      return;
+    }
+
+    // Token is invalid — check if it's a token replacement issue
+    const reason = (result && result.reason) || "unknown";
+    const lowerReason = reason.toLowerCase();
+    const isTokenIssue = lowerReason.includes("token") || lowerReason.includes("replaced") ||
+                         lowerReason.includes("expired") || lowerReason.includes("unauthorized") ||
+                         lowerReason.includes("invalid") || lowerReason.includes("logged out");
+
+    if (isTokenIssue || result?.reason === "no_token") {
+      tokenCheckFailCount++;
+      console.log(`\x1b[33m[Token Check] ⚠️ Token invalid (attempt ${tokenCheckFailCount}/2): ${reason}\x1b[0m`);
+
+      if (tokenCheckFailCount >= 2) {
+        // Confirmed stale token — force page reload to get fresh token
+        console.log(`\x1b[31m[Token Check] Token confirmed stale after ${tokenCheckFailCount} checks. Forcing page reload...\x1b[0m`);
+
+        isBrowserReady = false;
+        sendHeartbeat(); // Immediately notify central to stop sending bets
+
+        try {
+          await browserPage.reload({ waitUntil: "networkidle2", timeout: 30000 });
+          console.log(`\x1b[32m[Token Check] Page reloaded successfully. Re-validating token...\x1b[0m`);
+
+          // Wait for PG page to settle and re-inject interceptor
+          await new Promise(r => setTimeout(r, 5000));
+
+          try {
+            const interceptorPath = require("path").resolve(__dirname, "..", "eyes", "interceptor.js");
+            const interceptorCode = require("fs").readFileSync(interceptorPath, "utf8");
+            await browserPage.evaluate(interceptorCode).catch(() => {});
+            await browserPage.evaluateOnNewDocument(interceptorCode).catch(() => {});
+          } catch (e) {}
+
+          // Re-validate after reload
+          const recheck = await browserPage.evaluate(async () => {
+            const API_BASE = "https://member-api.aghippo168.com";
+            function getAuthToken() {
+              for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                const val = localStorage.getItem(key);
+                if (key.toLowerCase().includes('token') && val) return val.replace(/^Bearer\s+/i, '');
+                if (val && val.startsWith('eyJ') && val.split('.').length === 3) return val;
+              }
+              return null;
+            }
+            const token = getAuthToken();
+            if (!token) return false;
+            try {
+              const res = await fetch(`${API_BASE}/apiRoute/member/profile`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "authorization": token },
+                body: JSON.stringify({ lang: "en" })
+              }).then(r => r.json());
+              return !!(res && res._id);
+            } catch (e) { return false; }
+          }).catch(() => false);
+
+          if (recheck) {
+            console.log(`\x1b[32m[Token Check] ✅ Token refreshed after reload. Resuming bets.\x1b[0m`);
+            isBrowserReady = true;
+            sendHeartbeat();
+            tokenCheckFailCount = 0;
+          } else {
+            // Reload didn't fix it — need full session restart
+            console.log(`\x1b[31m[Token Check] ❌ Token still invalid after reload. Forcing full session restart.\x1b[0m`);
+            sendWhatsAppNotification(
+              `[ALERT] Bet module "${currentAccountLabel}" token expired and reload didn't fix it. Forcing full restart.`
+            ).catch(() => {});
+            isIntentionalRestart = true;
+            if (browserPage && !browserPage.isClosed()) {
+              browserPage.close().catch(() => {});
+            }
+            tokenCheckFailCount = 0;
+          }
+        } catch (reloadErr) {
+          console.error(`\x1b[31m[Token Check] Page reload failed: ${reloadErr.message}. Forcing full restart.\x1b[0m`);
+          isIntentionalRestart = true;
+          if (browserPage && !browserPage.isClosed()) {
+            browserPage.close().catch(() => {});
+          }
+          tokenCheckFailCount = 0;
+        }
+      }
+    } else {
+      // Network error or other transient issue — don't act on it
+      tokenCheckFailCount = 0;
+    }
+  } catch (e) {
+    // Silently ignore (page might be navigating)
+  }
+}
+
 async function getBetSummaryToday() {
   if (isBrowserReady && browserPage) {
     try {
@@ -332,19 +492,59 @@ async function runBetPG() {
       const status = success ? "SUCCESS" : "FAILED";
       
       if (!success) {
-        consecutiveBetErrors++;
-        if (consecutiveBetErrors >= 3) {
+        // Check if this is a token/session error that requires immediate restart
+        const lowerReason = (reason || "").toLowerCase();
+        const isTokenError = lowerReason.includes("token") && (lowerReason.includes("replaced") || lowerReason.includes("expired") || lowerReason.includes("invalid")) ||
+                             lowerReason.includes("session") && (lowerReason.includes("timeout") || lowerReason.includes("expired")) ||
+                             lowerReason.includes("unauthorized") ||
+                             lowerReason.includes("logged out") ||
+                             lowerReason.includes("login expired");
+
+        if (isTokenError) {
+          console.log(`\x1b[31m[ALERT] Token/session error detected: "${reason}". Forcing immediate restart.\x1b[0m`);
           sendWhatsAppNotification(
-            `[ALERT] Bet module "${currentAccountLabel}" encountered 3 consecutive bet errors. Last reason: ${reason || "None"}`
+            `[ALERT] Bet module "${currentAccountLabel}" token/session error: ${reason}. Forcing restart.`
           ).catch(err => console.error("WhatsApp notification failed:", err.message));
-          
-          console.log(`[ALERT] 3 consecutive errors. Closing tab to force restart.`);
+
           isIntentionalRestart = true;
+          isBrowserReady = false;
+          sendHeartbeat(); // Immediately notify central to stop sending bets
           if (browserPage && !browserPage.isClosed()) {
             browserPage.close().catch(() => {});
           }
-
           consecutiveBetErrors = 0;
+
+          // Drain remaining queued bets so they don't retry with stale token
+          while (betQueue.length > 0) {
+            const drainedBet = betQueue.shift();
+            console.log(`[${currentAccountLabel}] 🚫 Draining queued bet ${drainedBet.uuid || drainedBet.id} (session restarting)`);
+            fetch(`${CENTRAL_URL}/api/telemetry/bet-result`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                betId: drainedBet.uuid || drainedBet.id,
+                status: "FAILED",
+                reason: "Session restarting due to token error",
+                tableNumber: drainedBet.tableName,
+                betType: drainedBet.target || drainedBet.betType
+              })
+            }).catch(() => {});
+          }
+        } else {
+          consecutiveBetErrors++;
+          if (consecutiveBetErrors >= 3) {
+            sendWhatsAppNotification(
+              `[ALERT] Bet module "${currentAccountLabel}" encountered 3 consecutive bet errors. Last reason: ${reason || "None"}`
+            ).catch(err => console.error("WhatsApp notification failed:", err.message));
+            
+            console.log(`[ALERT] 3 consecutive errors. Closing tab to force restart.`);
+            isIntentionalRestart = true;
+            if (browserPage && !browserPage.isClosed()) {
+              browserPage.close().catch(() => {});
+            }
+
+            consecutiveBetErrors = 0;
+          }
         }
       } else {
         consecutiveBetErrors = 0;
@@ -639,6 +839,7 @@ server.listen(PORT, () => {
   console.log(`[Bet Module] 🟢 Online on ${BASE_URL} | Account Index: ${ACCOUNT_INDEX} | Targeting Central: ${CENTRAL_URL}`);
   setInterval(sendHeartbeat, 5000);
   setInterval(updateBalance, 5000); // Check balance periodically
+  setInterval(checkTokenHealth, 30000); // Proactive token health check every 30s
   sendHeartbeat(); // initial heartbeat
   runBetPG(); // start processing loop
   initBrowser(); // start browser lifecycle loop
